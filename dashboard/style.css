@@ -1,0 +1,580 @@
+/* ============================================================
+   Tab Mission Control — Dashboard Styles
+   Extracted directly from mockup.html — do not modify unless
+   also updating the mockup. This is the approved design.
+   ============================================================ */
+
+:root {
+  --ink: #1a1613;
+  --paper: #f8f5f0;
+  --warm-gray: #e8e2da;
+  --muted: #9a918a;
+  --accent-amber: #c8713a;
+  --accent-sage: #5a7a62;
+  --accent-slate: #5a6b7a;
+  --accent-rose: #b35a5a;
+  --status-active: #3d7a4a;
+  --status-cooling: #b8892e;
+  --status-abandoned: #b35a5a;
+  --card-bg: #fffdf9;
+  --shadow: rgba(26, 22, 19, 0.06);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle paper texture */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 32px 80px;
+}
+
+/* ---- Header ---- */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 48px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--warm-gray);
+}
+
+.header-left h1 {
+  font-family: 'Newsreader', serif;
+  font-weight: 300;
+  font-size: 28px;
+  letter-spacing: -0.5px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.header-left .date {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.scatter-meter {
+  text-align: right;
+}
+
+.scatter-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.scatter-bar {
+  display: flex;
+  gap: 3px;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.scatter-dot {
+  width: 8px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--warm-gray);
+  transition: background 0.3s;
+}
+
+.scatter-dot.filled { background: var(--accent-amber); }
+.scatter-dot.filled.high { background: var(--status-abandoned); }
+
+.scatter-caption {
+  font-size: 12px;
+  color: var(--accent-amber);
+  font-weight: 500;
+}
+
+/* ---- Tab cleanup banner ---- */
+.tab-cleanup-banner {
+  background: linear-gradient(135deg, rgba(200, 113, 58, 0.04), rgba(200, 113, 58, 0.09));
+  border: 1px solid rgba(200, 113, 58, 0.18);
+  border-radius: 8px;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.tab-cleanup-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.tab-cleanup-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(200, 113, 58, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tab-cleanup-icon svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-amber);
+}
+
+.tab-cleanup-text {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.tab-cleanup-text strong {
+  font-weight: 600;
+}
+
+.tab-cleanup-btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent-amber);
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.tab-cleanup-btn:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+/* ---- Nudge banner ---- */
+.nudge-banner {
+  background: linear-gradient(135deg, rgba(179, 90, 90, 0.04), rgba(179, 90, 90, 0.08));
+  border: 1px solid rgba(179, 90, 90, 0.15);
+  border-radius: 8px;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.nudge-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(179, 90, 90, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nudge-icon svg {
+  width: 18px;
+  height: 18px;
+  color: var(--status-abandoned);
+}
+
+.nudge-text {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.nudge-text strong {
+  font-weight: 600;
+}
+
+/* ---- Section Headers ---- */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  margin-top: 8px;
+}
+
+.section-header h2 {
+  font-family: 'Newsreader', serif;
+  font-weight: 400;
+  font-size: 18px;
+  font-style: italic;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.section-line {
+  flex: 1;
+  height: 1px;
+  background: var(--warm-gray);
+}
+
+.section-count {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+/* ---- Mission Cards ---- */
+.missions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.mission-card {
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: 4px 1fr auto;
+  gap: 0 20px;
+  align-items: start;
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+  cursor: pointer;
+}
+
+.mission-card:hover {
+  box-shadow: 0 4px 20px var(--shadow);
+  transform: translateY(-1px);
+}
+
+/* Closing animation */
+.mission-card.closing {
+  animation: cardClose 0.4s ease forwards;
+}
+
+@keyframes cardClose {
+  0% { opacity: 1; transform: translateY(0) scale(1); max-height: 200px; }
+  50% { opacity: 0.5; transform: translateY(-4px) scale(0.98); }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.96); max-height: 0; padding: 0 24px; margin-bottom: 0; overflow: hidden; }
+}
+
+.status-bar {
+  width: 4px;
+  height: 100%;
+  min-height: 48px;
+  border-radius: 2px;
+  align-self: stretch;
+}
+
+.status-bar.active { background: var(--status-active); }
+.status-bar.cooling { background: var(--status-cooling); }
+.status-bar.abandoned { background: var(--status-abandoned); }
+
+.mission-content {
+  min-width: 0;
+}
+
+.mission-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.mission-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+  letter-spacing: -0.2px;
+}
+
+.mission-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.mission-tag.active {
+  color: var(--status-active);
+  background: rgba(61, 122, 74, 0.08);
+}
+
+.mission-tag.cooling {
+  color: var(--status-cooling);
+  background: rgba(184, 137, 46, 0.08);
+}
+
+.mission-tag.abandoned {
+  color: var(--status-abandoned);
+  background: rgba(179, 90, 90, 0.08);
+}
+
+/* Tab indicator badge — shows how many Chrome tabs are still open for this mission */
+.open-tabs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--accent-amber);
+  background: rgba(200, 113, 58, 0.08);
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.open-tabs-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+.mission-summary {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.mission-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.page-chip {
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(154, 145, 138, 0.08);
+  padding: 3px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  border: 1px solid rgba(154, 145, 138, 0.12);
+}
+
+.mission-meta {
+  text-align: right;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+.mission-time {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.mission-page-count {
+  font-size: 20px;
+  font-family: 'Newsreader', serif;
+  font-weight: 300;
+  color: var(--ink);
+  line-height: 1;
+}
+
+.mission-page-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ---- Actions row ---- */
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.action-btn {
+  font-size: 11px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  padding: 5px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--warm-gray);
+  background: var(--card-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.action-btn:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.action-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.action-btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.action-btn.primary:hover {
+  opacity: 0.85;
+}
+
+.action-btn.close-tabs {
+  border-color: rgba(200, 113, 58, 0.3);
+  color: var(--accent-amber);
+  background: rgba(200, 113, 58, 0.04);
+}
+
+.action-btn.close-tabs:hover {
+  background: rgba(200, 113, 58, 0.1);
+  border-color: var(--accent-amber);
+}
+
+.action-btn.danger {
+  color: var(--status-abandoned);
+}
+
+.action-btn.danger:hover {
+  border-color: var(--status-abandoned);
+  color: var(--status-abandoned);
+}
+
+/* ---- Toast notification ---- */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 12px 24px;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  z-index: 100;
+  opacity: 0;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast svg {
+  width: 16px;
+  height: 16px;
+  color: var(--status-active);
+}
+
+/* ---- Footer ---- */
+footer {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--warm-gray);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer-stats {
+  display: flex;
+  gap: 32px;
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat-num {
+  font-family: 'Newsreader', serif;
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--ink);
+  line-height: 1;
+  transition: all 0.3s;
+}
+
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.last-refresh {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.refresh-btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent-amber);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- Animations ---- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+header { animation: fadeUp 0.5s ease both; }
+.tab-cleanup-banner { animation: fadeUp 0.5s ease 0.1s both; }
+.nudge-banner { animation: fadeUp 0.5s ease 0.15s both; }
+.active-section .section-header { animation: fadeUp 0.5s ease 0.2s both; }
+.active-section .missions .mission-card:nth-child(1) { animation: fadeUp 0.4s ease 0.25s both; }
+.active-section .missions .mission-card:nth-child(2) { animation: fadeUp 0.4s ease 0.3s both; }
+.active-section .missions .mission-card:nth-child(3) { animation: fadeUp 0.4s ease 0.35s both; }
+.active-section .missions .mission-card:nth-child(4) { animation: fadeUp 0.4s ease 0.4s both; }
+.abandoned-section .section-header { animation: fadeUp 0.5s ease 0.45s both; }
+.abandoned-section .missions .mission-card:nth-child(1) { animation: fadeUp 0.4s ease 0.5s both; }
+.abandoned-section .missions .mission-card:nth-child(2) { animation: fadeUp 0.4s ease 0.55s both; }
+.abandoned-section .missions .mission-card:nth-child(3) { animation: fadeUp 0.4s ease 0.6s both; }
+footer { animation: fadeUp 0.5s ease 0.65s both; }

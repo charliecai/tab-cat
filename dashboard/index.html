@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control</title>
+
+  <!-- Google Fonts: Newsreader (for headings/numbers) + DM Sans (for body text) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,300;1,6..72,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+  <!-- ================================================================
+       HEADER — greeting on the left, scatter meter on the right
+       Both sides are empty placeholders; app.js fills them in.
+       ================================================================ -->
+  <header>
+    <div class="header-left">
+      <!-- "Good afternoon, Zara" — written by getGreeting() in app.js -->
+      <h1 id="greeting"></h1>
+      <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
+      <div class="date" id="dateDisplay"></div>
+    </div>
+
+    <!-- Scatter meter: 10 dots that fill up based on how many missions are active -->
+    <div class="scatter-meter">
+      <div class="scatter-label">Focus level</div>
+      <!-- app.js calls renderScatterBar() to fill in the dots -->
+      <div class="scatter-bar" id="scatterBar"></div>
+      <!-- e.g. "4 parallel missions — moderate scatter" -->
+      <div class="scatter-caption" id="scatterCaption"></div>
+    </div>
+  </header>
+
+  <!-- ================================================================
+       TAB CLEANUP BANNER — appears when stale tabs exist
+       Hidden by default; app.js shows it when staleTabCount > 0
+       ================================================================ -->
+  <div class="tab-cleanup-banner" id="cleanupBanner" style="display:none">
+    <div class="tab-cleanup-left">
+      <!-- Folder icon (Heroicons outline) -->
+      <div class="tab-cleanup-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+        </svg>
+      </div>
+      <div class="tab-cleanup-text">
+        <!-- e.g. "23 stale tabs are still open from finished or cold missions." -->
+        <strong id="staleTabCount"></strong> are still open from finished or cold missions. Free up your browser?
+      </div>
+    </div>
+    <!-- This button's id is referenced in app.js event delegation -->
+    <button class="tab-cleanup-btn" id="closeAllStaleBtn">Close all stale tabs</button>
+  </div>
+
+  <!-- ================================================================
+       NUDGE BANNER — appears when there are abandoned missions
+       Hidden by default; app.js shows it when abandonedCount > 0
+       ================================================================ -->
+  <div class="nudge-banner" id="nudgeBanner" style="display:none">
+    <!-- Warning / exclamation circle icon (Heroicons outline) -->
+    <div class="nudge-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+      </svg>
+    </div>
+    <!-- app.js fills in the exact text based on how many missions have gone cold -->
+    <div class="nudge-text" id="nudgeText"></div>
+  </div>
+
+  <!-- ================================================================
+       ACTIVE SECTION — missions with status "active" or "cooling"
+       Hidden by default; app.js shows it when there are active missions
+       ================================================================ -->
+  <div class="active-section" id="activeSection" style="display:none">
+    <div class="section-header">
+      <h2>Active today</h2>
+      <div class="section-line"></div>
+      <div class="section-count" id="activeSectionCount"></div>
+    </div>
+    <!-- Mission cards injected here by renderMissionCard() in app.js -->
+    <div class="missions" id="activeMissions"></div>
+  </div>
+
+  <!-- ================================================================
+       ABANDONED SECTION — missions with status "abandoned"
+       Hidden by default; app.js shows it when there are abandoned missions
+       ================================================================ -->
+  <div class="abandoned-section" id="abandonedSection" style="display:none">
+    <div class="section-header">
+      <h2>Gone cold</h2>
+      <div class="section-line"></div>
+      <div class="section-count" id="abandonedSectionCount"></div>
+    </div>
+    <!-- Mission cards injected here by renderMissionCard() in app.js -->
+    <div class="missions" id="abandonedMissions"></div>
+  </div>
+
+  <!-- ================================================================
+       FOOTER — global stats + refresh control
+       ================================================================ -->
+  <footer>
+    <div class="footer-stats">
+      <!-- Total mission count -->
+      <div class="stat">
+        <div class="stat-num" id="statMissions">—</div>
+        <div class="stat-label">Missions</div>
+      </div>
+      <!-- Total open tabs (from extension) -->
+      <div class="stat">
+        <div class="stat-num" id="statTabs">—</div>
+        <div class="stat-label">Open tabs</div>
+      </div>
+      <!-- Tabs that are open but belong to non-active missions -->
+      <div class="stat">
+        <div class="stat-num" id="statStale">—</div>
+        <div class="stat-label">Stale tabs</div>
+      </div>
+    </div>
+    <div class="last-refresh">
+      <!-- e.g. "Last analyzed 5 min ago · Refresh now" -->
+      <span id="lastRefreshTime"></span>
+      &nbsp;&middot;&nbsp;
+      <button class="refresh-btn" id="refreshBtn">Refresh now</button>
+    </div>
+  </footer>
+
+</div><!-- end .container -->
+
+<!-- ================================================================
+     TOAST — floats above everything, used for action confirmations
+     Hidden by default via CSS (opacity:0, translateY)
+     ================================================================ -->
+<div class="toast" id="toast">
+  <!-- Checkmark circle icon (Heroicons outline) -->
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+  <span id="toastText"></span>
+</div>
+
+<!-- Main dashboard logic — loads last so the DOM is ready -->
+<script src="app.js"></script>
+</body>
+</html>
