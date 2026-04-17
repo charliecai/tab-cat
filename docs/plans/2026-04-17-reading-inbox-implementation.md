@@ -4,7 +4,7 @@
 
 **Goal:** Add a dual-mode Tab Out homepage with pinned shortcuts, a manual AI-backed reading inbox, topic digest generation, and in-page AI settings using an OpenAI-compatible provider.
 
-**Architecture:** Keep the extension browser-native and refactor the current single-page script into small modules around storage, capture, AI orchestration, and topic logic. Preserve the existing tab dashboard behavior while introducing `IndexedDB` as the primary reading system of record and using asynchronous background processing for capture and analysis.
+**Architecture:** Keep the extension browser-native and refactor the current single-page script into small modules around storage, capture, AI orchestration, and topic logic. Preserve the existing tab dashboard behavior while introducing `IndexedDB` as the primary reading system of record and using asynchronous background processing for capture and analysis. All new UI work must follow the installed `DESIGN.md` system for typography, color, spacing, surfaces, and interaction treatment.
 
 **Tech Stack:** Chrome Extension Manifest V3, plain HTML/CSS/JavaScript, `IndexedDB`, `chrome.storage.local` for lightweight settings, `Defuddle` for article capture, OpenAI-compatible HTTP API, browser-native manual smoke tests.
 
@@ -164,7 +164,7 @@ git add extension/lib/pinned-repo.js extension/lib/articles-repo.js extension/li
 git commit -m "feat: add repository helpers for pinned entries articles and topics"
 ```
 
-### Task 4: Split the homepage shell into `Work now` and `Reading inbox`
+### Task 4: Split the homepage shell into `Now` and `Reading inbox`
 
 **Files:**
 - Modify: `extension/index.html`
@@ -176,7 +176,7 @@ git commit -m "feat: add repository helpers for pinned entries articles and topi
 Replace the single current dashboard layout with placeholders for:
 
 - mode switcher
-- `Work now`
+- `Now`
 - `Pinned`
 - `Open now`
 - `Reading inbox`
@@ -200,15 +200,16 @@ Expected: after reload, the extension shows structural placeholders for both mod
 
 Update static markup and CSS so:
 
-- `Work now` is the default visible mode
+- `Now` is the default visible mode
 - `Reading inbox` is hidden by default
 - major sections render with stable IDs for later JavaScript hooks
+- the shell styling aligns with `DESIGN.md` tokens and visual direction
 
 **Step 4: Reload and verify the shell**
 
 Manual checks:
 
-- `Work now` opens by default
+- `Now` opens by default
 - the mode switch is visible
 - `Reading inbox` has left and right panels
 - layout still works on desktop width and a narrow viewport

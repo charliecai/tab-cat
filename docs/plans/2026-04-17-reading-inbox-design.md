@@ -25,6 +25,7 @@ The extension is **not** the user’s permanent knowledge base. It is a temporar
 - Topic grouping should be stable and explainable.
 - The UI should keep “current work” and “reading backlog” separate.
 - The extension should stay lightweight in scope even when using external AI models.
+- UI styling should follow the installed `DESIGN.md` system as the source of truth for visual direction.
 
 ---
 
@@ -32,7 +33,7 @@ The extension is **not** the user’s permanent knowledge base. It is a temporar
 
 ### Included in V1
 
-- Dual homepage modes: `Work now` and `Reading inbox`
+- Dual homepage modes: `Now` and `Reading inbox`
 - `Pinned` single-entry shortcuts with manual management
 - Manual `Save for later` capture from `Open now`
 - `IndexedDB` as primary storage for captured articles and topics
@@ -66,9 +67,9 @@ The extension is **not** the user’s permanent knowledge base. It is a temporar
 
 ## Homepage Structure
 
-### Mode 1: Work now
+### Mode 1: Now
 
-`Work now` is for immediate action and current context.
+`Now` is for immediate action and current context.
 
 #### Pinned
 
@@ -123,7 +124,7 @@ The extension is **not** the user’s permanent knowledge base. It is a temporar
 
 Capture is entirely manual in V1.
 
-1. User opens `Work now`.
+1. User opens `Now`.
 2. User clicks `Save for later` on a tab inside `Open now`.
 3. The extension immediately creates a local inbox record.
 4. The extension asynchronously captures the article content with `Defuddle`.
@@ -333,6 +334,7 @@ The configuration UI lives inside the main extension homepage, not a separate op
   - capture
   - AI client
   - topic engine
+- Follow `DESIGN.md` for typography, color, elevation, and interaction styling whenever UI is added or revised
 - Avoid heavy file-system integration
 - Avoid provider-specific coupling
 - Prefer explicit UI states over hidden background magic
