@@ -72,15 +72,22 @@
   }
 
   async function listActiveArticles(options = {}) {
+    return listArticlesByLifecycleState('active', options);
+  }
+
+  async function listArticlesByLifecycleState(lifecycleState, options = {}) {
     const sort = options.sort || 'saved_at_desc';
     const rows = await runTransaction(STORES.articles, 'readonly', async (stores) => {
       const index = stores[STORES.articles].index('by_lifecycle_state');
-      return requestToPromise(index.getAll('active'));
+      return requestToPromise(index.getAll(lifecycleState));
     });
 
     return rows.sort((left, right) => {
       if (sort === 'saved_at_desc') {
         return new Date(right.saved_at).getTime() - new Date(left.saved_at).getTime();
+      }
+      if (sort === 'last_saved_at_desc') {
+        return new Date(right.last_saved_at || right.saved_at).getTime() - new Date(left.last_saved_at || left.saved_at).getTime();
       }
       return 0;
     });
@@ -190,6 +197,7 @@
   namespace.getArticleById = getArticleById;
   namespace.listArticles = listArticles;
   namespace.listActiveArticles = listActiveArticles;
+  namespace.listArticlesByLifecycleState = listArticlesByLifecycleState;
   namespace.countActiveInboxItems = countActiveInboxItems;
   namespace.findArticleByCanonicalUrl = findArticleByCanonicalUrl;
   namespace.createQueuedArticle = createQueuedArticle;

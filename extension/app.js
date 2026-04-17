@@ -222,20 +222,66 @@ async function closeTabOutDupes() {
 /**
  * saveTabForLater(tab)
  *
- * Saves a single tab to the "Saved for Later" list in chrome.storage.local.
- * @param {{ url: string, title: string }} tab
+ * Queues a single tab for the new Reading inbox flow.
+ * Applies same-URL dedupe and re-queues unfinished work instead of creating duplicates.
+ * @param {{ id?: number, url: string, title: string }} tab
  */
 async function saveTabForLater(tab) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  deferred.push({
-    id:        Date.now().toString(),
-    url:       tab.url,
-    title:     tab.title,
-    savedAt:   new Date().toISOString(),
-    completed: false,
-    dismissed: false,
+  const articlesRepo = globalThis.TabOutArticlesRepo;
+  const jobsRepo = globalThis.TabOutJobsRepo;
+  if (!articlesRepo || !jobsRepo) {
+    throw new Error('Reading inbox repositories are unavailable');
+  }
+
+  const existing = await articlesRepo.findArticleByCanonicalUrl(tab.url);
+  if (existing) {
+    const refreshed = await articlesRepo.updateArticle(existing.id, {
+      lifecycle_state: 'active',
+      last_saved_at: new Date().toISOString(),
+    });
+
+    const checkpointState = getRetryCheckpointState(existing.processing_state);
+    const shouldRequeue = checkpointState !== 'assigned';
+    if (!shouldRequeue) {
+      return {
+        article: refreshed,
+        deduped: true,
+        requeued: false,
+      };
+    }
+
+    const resetArticle = await articlesRepo.updateArticleProcessingState(existing.id, checkpointState);
+    await jobsRepo.enqueueJob({
+      article_id: existing.id,
+      processing_state: checkpointState,
+    });
+
+    return {
+      article: resetArticle,
+      deduped: true,
+      requeued: true,
+    };
+  }
+
+  const siteName = getSiteNameFromUrl(tab.url);
+  const article = await articlesRepo.createQueuedArticle({
+    source_type: 'tab',
+    source_ref: tab.id ? String(tab.id) : null,
+    url: tab.url,
+    title: tab.title || tab.url,
+    site_name: siteName,
   });
-  await chrome.storage.local.set({ deferred });
+
+  await jobsRepo.enqueueJob({
+    article_id: article.id,
+    processing_state: 'queued',
+  });
+
+  return {
+    article,
+    deduped: false,
+    requeued: true,
+  };
 }
 
 /**
@@ -280,6 +326,118 @@ async function dismissSavedTab(id) {
   if (tab) {
     tab.dismissed = true;
     await chrome.storage.local.set({ deferred });
+  }
+}
+
+function getHomepageController() {
+  return globalThis.TabOutHomepageController || null;
+}
+
+function getSiteNameFromUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function getRetryCheckpointState(processingState) {
+  if (processingState === 'capture_failed' || processingState === 'queued' || processingState === 'capturing') {
+    return 'queued';
+  }
+  if (processingState === 'analysis_failed' || processingState === 'captured' || processingState === 'analyzing') {
+    return 'captured';
+  }
+  if (processingState === 'assignment_failed' || processingState === 'analyzed' || processingState === 'assigning') {
+    return 'analyzed';
+  }
+  return processingState || 'queued';
+}
+
+function getProcessingTone(processingState) {
+  if (['capture_failed', 'analysis_failed', 'assignment_failed'].includes(processingState)) {
+    return 'warning';
+  }
+  if (['assigned'].includes(processingState)) {
+    return 'ready';
+  }
+  return 'pending';
+}
+
+function getProcessingLabel(processingState) {
+  switch (processingState) {
+    case 'queued':
+      return 'Queued';
+    case 'capturing':
+      return 'Capturing';
+    case 'captured':
+      return 'Captured';
+    case 'analyzing':
+      return 'Analyzing';
+    case 'analyzed':
+      return 'Analyzed';
+    case 'assigning':
+      return 'Assigning';
+    case 'assigned':
+      return 'Ready';
+    case 'capture_failed':
+      return 'Capture failed';
+    case 'analysis_failed':
+      return 'Analysis failed';
+    case 'assignment_failed':
+      return 'Assignment failed';
+    default:
+      return 'Pending';
+  }
+}
+
+function getRecommendedActionLabel(article) {
+  if (article.recommended_action) return article.recommended_action;
+  if (article.processing_state === 'assigned') return 'Review topic';
+  if (['analysis_failed', 'assignment_failed'].includes(article.processing_state)) return 'Retry after fixing AI settings';
+  if (article.processing_state === 'capture_failed') return 'Retry capture';
+  return 'Waiting for analysis';
+}
+
+function getRowStatusReason(article) {
+  if (article.processing_state === 'capture_failed') {
+    return 'Could not capture article content.';
+  }
+  if (article.processing_state === 'analysis_failed') {
+    return 'Content is saved, but AI analysis failed.';
+  }
+  if (article.processing_state === 'assignment_failed') {
+    return 'Analysis finished, but topic assignment failed.';
+  }
+  if (article.main_topic_label) {
+    return article.why_recommended || 'Ready inside its current topic.';
+  }
+  if (article.processing_state === 'assigned') {
+    return 'Ready for topic review.';
+  }
+  return 'Waiting for the background pipeline.';
+}
+
+function isLikelyReadingTab(tab) {
+  try {
+    const parsed = new URL(tab.url);
+    const path = parsed.pathname.toLowerCase();
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'mail.google.com' ||
+      host === 'calendar.google.com' ||
+      host === 'github.com' && path === '/' ||
+      host === 'x.com' && path === '/home'
+    ) {
+      return false;
+    }
+
+    const pathSegments = path.split('/').filter(Boolean);
+    const articlePath = /(article|blog|post|news|guide|docs|read|story)/.test(path);
+    const longTitle = (tab.title || '').trim().length >= 42;
+    return articlePath || pathSegments.length >= 2 || longTitle;
+  } catch {
+    return false;
   }
 }
 
@@ -789,6 +947,140 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     </div>`;
 }
 
+function renderReadingInboxRow(article) {
+  const safeTitle = (article.title || article.url || '').replace(/"/g, '&quot;');
+  const safeUrl = (article.url || '').replace(/"/g, '&quot;');
+  const topicLabel = article.main_topic_label || 'Topic pending';
+  const recommendedAction = getRecommendedActionLabel(article);
+  const processingLabel = getProcessingLabel(article.processing_state);
+  const processingTone = getProcessingTone(article.processing_state);
+  const reason = getRowStatusReason(article);
+  const isRetryable = ['capture_failed', 'analysis_failed', 'assignment_failed'].includes(article.processing_state);
+  const isReadView = article.lifecycle_state === 'read';
+  const primaryAction = isReadView
+    ? `<button class="reading-item-action" type="button" data-action="archive-article" data-article-id="${article.id}">Archive</button>`
+    : `<button class="reading-item-action" type="button" data-action="mark-article-read" data-article-id="${article.id}">Mark read</button>`;
+  const retryAction = isRetryable
+    ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">Retry</button>`
+    : '';
+
+  return `
+    <article class="reading-item" data-article-id="${article.id}">
+      <div class="reading-item-main">
+        <div class="reading-item-heading">
+          <button class="reading-item-title" type="button" data-action="open-article-source" data-article-url="${safeUrl}" title="${safeTitle}">${article.title || article.url}</button>
+          <span class="reading-item-processing ${processingTone}">${processingLabel}</span>
+        </div>
+        <div class="reading-item-meta">
+          <span>${article.site_name || getSiteNameFromUrl(article.url)}</span>
+          <span>${timeAgo(article.last_saved_at || article.saved_at)}</span>
+        </div>
+        <div class="reading-item-topic">${topicLabel}</div>
+        <div class="reading-item-reason">${recommendedAction} · ${reason}</div>
+      </div>
+      <div class="reading-item-actions">
+        ${primaryAction}
+        <button class="reading-item-action" type="button" data-action="delete-article" data-article-id="${article.id}">Delete</button>
+        ${retryAction}
+      </div>
+      <div class="reading-item-delete-confirm" data-delete-confirm-for="${article.id}">
+        <span>Delete this saved article?</span>
+        <button class="reading-item-action danger" type="button" data-action="confirm-delete-article" data-article-id="${article.id}">Delete</button>
+        <button class="reading-item-action" type="button" data-action="cancel-delete-article" data-article-id="${article.id}">Cancel</button>
+      </div>
+    </article>
+  `;
+}
+
+function deriveTopicSummary(topics, articles) {
+  if (!articles.length) {
+    return `
+      <p class="topic-panel-lead">Nothing to triage yet.</p>
+      <p class="topic-panel-copy">Save an article from Now and the inbox will start building a calm topic overview here.</p>
+    `;
+  }
+
+  const assigned = articles.filter((article) => article.main_topic_id && article.processing_state === 'assigned');
+  if (!assigned.length) {
+    return `
+      <p class="topic-panel-lead">Articles are saved, but topic guidance is still forming.</p>
+      <p class="topic-panel-copy">Capture and analysis can complete before topic assignment. Failed or unassigned items stay visible on the left so you never lose them.</p>
+    `;
+  }
+
+  const grouped = new Map();
+  assigned.forEach((article) => {
+    const key = article.main_topic_id || article.main_topic_label;
+    const bucket = grouped.get(key) || {
+      topic: topics.find((item) => item.id === article.main_topic_id) || null,
+      articles: [],
+    };
+    bucket.articles.push(article);
+    grouped.set(key, bucket);
+  });
+
+  const cards = Array.from(grouped.values())
+    .sort((left, right) => right.articles.length - left.articles.length)
+    .slice(0, 4)
+    .map(({ topic, articles: topicArticles }) => {
+      const label = topic?.title || topicArticles[0].main_topic_label || 'Untitled topic';
+      const lead = topic?.one_line_digest || topicArticles[0].summary_short || 'A lightweight topic cluster drawn from your saved articles.';
+      const firstArticle = topicArticles[0];
+      return `
+        <section class="topic-summary-card">
+          <div class="topic-summary-heading">
+            <h3>${label}</h3>
+            <span>${topicArticles.length} article${topicArticles.length !== 1 ? 's' : ''}</span>
+          </div>
+          <p>${lead}</p>
+          <div class="topic-summary-path">Start with ${firstArticle.title || firstArticle.url}</div>
+        </section>
+      `;
+    })
+    .join('');
+
+  return `
+    <p class="topic-panel-lead">Your backlog is starting to cluster into a few clear themes.</p>
+    <div class="topic-summary-list">${cards}</div>
+  `;
+}
+
+async function renderPinnedSurface() {
+  const controller = getHomepageController();
+  const pinnedRepo = globalThis.TabOutPinnedRepo;
+  if (!controller || !pinnedRepo) return;
+  const entries = await pinnedRepo.listPinnedEntries();
+  controller.renderPinned(entries);
+}
+
+async function renderReadingInboxSurface() {
+  const controller = getHomepageController();
+  const articlesRepo = globalThis.TabOutArticlesRepo;
+  const topicsRepo = globalThis.TabOutTopicsRepo;
+  if (!controller || !articlesRepo || !topicsRepo) return;
+
+  const activeCount = await articlesRepo.countActiveInboxItems();
+  controller.setReadingInboxCount(activeCount);
+
+  const lifecycleState = controller.getReadingView() === 'read' ? 'read' : 'active';
+  const articles = await articlesRepo.listArticlesByLifecycleState(lifecycleState, {
+    sort: 'last_saved_at_desc',
+  });
+  const topics = await topicsRepo.listTopics();
+
+  controller.renderReadingInboxList(
+    articles.map(renderReadingInboxRow),
+    lifecycleState === 'active'
+      ? 'Save your first article from Now to start a reading inbox.'
+      : 'Nothing marked as read yet.'
+  );
+  controller.setTopicSummary(deriveTopicSummary(topics, articles));
+}
+
+async function renderInboxSurfaces() {
+  await Promise.all([renderPinnedSurface(), renderReadingInboxSurface()]);
+}
+
 
 /* ----------------------------------------------------------------
    DOMAIN CARD RENDERER
@@ -844,6 +1136,7 @@ function renderDomainCard(group) {
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
+    const saveClass = isLikelyReadingTab(tab) ? ' chip-save-emphasis' : '';
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
@@ -853,7 +1146,10 @@ function renderDomainCard(group) {
       ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <button class="chip-action chip-pin" data-action="pin-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Pin to shortcuts">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m15 5.25 3.75 3.75m-2.258-5.492 1.533 1.533a2.25 2.25 0 0 1 0 3.182l-7.343 7.343a4.5 4.5 0 0 1-1.897 1.13L5.25 18.75l1.049-3.535a4.5 4.5 0 0 1 1.13-1.897l7.343-7.343a2.25 2.25 0 0 1 3.182 0Z" /></svg>
+        </button>
+        <button class="chip-action chip-save${saveClass}" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
         <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
@@ -1020,6 +1316,11 @@ function renderArchiveItem(item) {
  * 6. Renders the "Saved for Later" checklist
  */
 async function renderStaticDashboard() {
+  const homepageController = getHomepageController();
+  if (homepageController) {
+    homepageController.init();
+  }
+
   // --- Header ---
   const greetingEl = document.getElementById('greeting');
   const dateEl     = document.getElementById('dateDisplay');
@@ -1149,7 +1450,7 @@ async function renderStaticDashboard() {
   const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
 
   if (domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
+    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open now';
     openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
     openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
     openTabsSection.style.display = 'block';
@@ -1164,13 +1465,21 @@ async function renderStaticDashboard() {
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
 
-  // --- Render "Saved for Later" column ---
-  await renderDeferredColumn();
+  // --- Render pinned + reading inbox surfaces ---
+  await renderInboxSurfaces();
 }
 
 async function renderDashboard() {
   await renderStaticDashboard();
 }
+
+window.addEventListener('tabout:reading-view-changed', async () => {
+  try {
+    await renderReadingInboxSurface();
+  } catch (error) {
+    console.warn('[tab-out] Failed to rerender reading inbox after view change:', error);
+  }
+});
 
 
 /* ----------------------------------------------------------------
@@ -1221,6 +1530,37 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'open-article-source') {
+    e.stopPropagation();
+    const articleUrl = actionEl.dataset.articleUrl;
+    if (articleUrl) {
+      await chrome.tabs.create({ url: articleUrl, active: true });
+    }
+    return;
+  }
+
+  if (action === 'pin-single-tab') {
+    e.stopPropagation();
+    const tabUrl = actionEl.dataset.tabUrl;
+    const tabTitle = actionEl.dataset.tabTitle || tabUrl;
+    if (!tabUrl || !globalThis.TabOutPinnedRepo) return;
+
+    const entries = await globalThis.TabOutPinnedRepo.listPinnedEntries();
+    const existing = entries.find((entry) => entry.url === tabUrl);
+    if (existing) {
+      showToast('Already pinned');
+      return;
+    }
+
+    await globalThis.TabOutPinnedRepo.createPinnedEntry({
+      title: tabTitle,
+      url: tabUrl,
+    });
+    await renderPinnedSurface();
+    showToast('Pinned to Now');
+    return;
+  }
+
   // ---- Close a single tab ----
   if (action === 'close-single-tab') {
     e.stopPropagation(); // don't trigger parent chip's focus-tab
@@ -1264,39 +1604,128 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // ---- Save a single tab for later (then close it) ----
+  // ---- Save a single tab for later ----
   if (action === 'defer-single-tab') {
     e.stopPropagation();
     const tabUrl   = actionEl.dataset.tabUrl;
     const tabTitle = actionEl.dataset.tabTitle || tabUrl;
+    const tabId    = actionEl.dataset.tabId ? Number(actionEl.dataset.tabId) : undefined;
     if (!tabUrl) return;
 
-    // Save to chrome.storage.local
     try {
-      await saveTabForLater({ url: tabUrl, title: tabTitle });
+      const result = await saveTabForLater({ id: tabId, url: tabUrl, title: tabTitle });
+      await renderReadingInboxSurface();
+      if (result.deduped) {
+        showToast(result.requeued ? 'Already saved. Re-queued for processing.' : 'Already saved');
+      } else {
+        showToast('Saved to Reading inbox');
+      }
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
       showToast('Failed to save tab');
-      return;
+    }
+    return;
+  }
+
+  if (action === 'mark-article-read') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo) return;
+    await globalThis.TabOutArticlesRepo.markArticleRead(articleId);
+    await renderReadingInboxSurface();
+    showToast('Marked as read');
+    return;
+  }
+
+  if (action === 'archive-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo) return;
+    await globalThis.TabOutArticlesRepo.markArticleArchived(articleId);
+    await renderReadingInboxSurface();
+    showToast('Archived');
+    return;
+  }
+
+  if (action === 'delete-article') {
+    const articleId = actionEl.dataset.articleId;
+    const row = actionEl.closest('.reading-item');
+    if (!articleId || !row) return;
+    row.classList.add('confirming-delete');
+    return;
+  }
+
+  if (action === 'cancel-delete-article') {
+    const row = actionEl.closest('.reading-item');
+    if (row) {
+      row.classList.remove('confirming-delete');
+    }
+    return;
+  }
+
+  if (action === 'confirm-delete-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo) return;
+
+    const article = await globalThis.TabOutArticlesRepo.getArticleById(articleId);
+    if (!article) return;
+
+    const relatedJob = globalThis.TabOutJobsRepo
+      ? await globalThis.TabOutJobsRepo.getJobByArticleId(articleId)
+      : null;
+    if (relatedJob && globalThis.TabOutJobsRepo) {
+      await globalThis.TabOutJobsRepo.deleteJob(relatedJob.id);
     }
 
-    // Close the tab in Chrome
-    const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
-    await fetchOpenTabs();
+    await globalThis.TabOutArticlesRepo.deleteArticlePermanently(articleId);
 
-    // Animate chip out
-    const chip = actionEl.closest('.page-chip');
-    if (chip) {
-      chip.style.transition = 'opacity 0.2s, transform 0.2s';
-      chip.style.opacity    = '0';
-      chip.style.transform  = 'scale(0.8)';
-      setTimeout(() => chip.remove(), 200);
+    if (article.main_topic_id && globalThis.TabOutTopicsRepo && globalThis.TabOutArticlesRepo) {
+      const topicArticles = await globalThis.TabOutArticlesRepo.listArticles();
+      const stillExists = topicArticles.some((item) => item.main_topic_id === article.main_topic_id && item.id !== articleId);
+      if (!stillExists) {
+        await globalThis.TabOutTopicsRepo.deleteTopic(article.main_topic_id);
+      }
     }
 
-    showToast('Saved for later');
-    await renderDeferredColumn();
+    await renderReadingInboxSurface();
+    showToast('Deleted');
+    return;
+  }
+
+  if (action === 'retry-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo || !globalThis.TabOutJobsRepo) return;
+    const article = await globalThis.TabOutArticlesRepo.getArticleById(articleId);
+    if (!article) return;
+    const checkpointState = getRetryCheckpointState(article.processing_state);
+    await globalThis.TabOutArticlesRepo.updateArticleProcessingState(articleId, checkpointState);
+    await globalThis.TabOutJobsRepo.enqueueJob({
+      article_id: articleId,
+      processing_state: checkpointState,
+    });
+    await renderReadingInboxSurface();
+    showToast('Queued for retry');
+    return;
+  }
+
+  if (action === 'edit-pinned-entry') {
+    const pinnedId = actionEl.dataset.pinnedId;
+    if (!pinnedId || !globalThis.TabOutPinnedRepo) return;
+    const entries = await globalThis.TabOutPinnedRepo.listPinnedEntries();
+    const entry = entries.find((item) => item.id === pinnedId);
+    if (!entry) return;
+    const nextTitle = window.prompt('Pinned title', entry.title || entry.url);
+    if (!nextTitle || nextTitle === entry.title) return;
+    await globalThis.TabOutPinnedRepo.updatePinnedEntry(pinnedId, { title: nextTitle.trim() });
+    await renderPinnedSurface();
+    showToast('Pin updated');
+    return;
+  }
+
+  if (action === 'remove-pinned-entry') {
+    const pinnedId = actionEl.dataset.pinnedId;
+    if (!pinnedId || !globalThis.TabOutPinnedRepo) return;
+    await globalThis.TabOutPinnedRepo.removePinnedEntry(pinnedId);
+    await renderPinnedSurface();
+    showToast('Pin removed');
     return;
   }
 

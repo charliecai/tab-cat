@@ -26,6 +26,18 @@
       <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
       <div class="date" id="dateDisplay"></div>
     </div>
+    <div class="header-right">
+      <div class="mode-switcher" id="modeSwitcher" aria-label="Homepage mode switcher">
+        <button class="mode-switcher-btn active" data-mode-target="now" id="nowModeButton" type="button">Now</button>
+        <button class="mode-switcher-btn" data-mode-target="reading-inbox" id="readingInboxModeButton" type="button">
+          Reading inbox
+          <span class="mode-badge" id="readingInboxBadge">0</span>
+        </button>
+      </div>
+      <button class="settings-trigger" data-action="toggle-settings" type="button" aria-controls="settingsDrawer" aria-expanded="false">
+        Settings
+      </button>
+    </div>
   </header>
 
   <!-- ================================================================
@@ -46,55 +58,61 @@
     <button class="tab-cleanup-btn" data-action="close-tabout-dupes">Close extras</button>
   </div>
 
-  <!-- ================================================================
-       MAIN CONTENT AREA — two-column layout
-       Left: open tabs (domain/mission cards)
-       Right: saved for later checklist
-       The right column only renders when it has items (JS controls this)
-       ================================================================ -->
-  <div class="dashboard-columns" id="dashboardColumns">
-
-    <!-- LEFT COLUMN: Open tabs -->
-    <div class="active-section" id="openTabsSection" style="display:none">
-      <div class="section-header">
-        <h2 id="openTabsSectionTitle">Right now</h2>
-        <div class="section-line"></div>
-        <div class="section-count" id="openTabsSectionCount"></div>
-      </div>
-      <div class="missions" id="openTabsMissions"></div>
-    </div>
-
-    <!-- RIGHT COLUMN: Saved for Later checklist -->
-    <div class="deferred-column" id="deferredColumn" style="display:none">
-      <div class="section-header">
-        <h2>Saved for later</h2>
-        <div class="section-line"></div>
-        <div class="section-count" id="deferredCount"></div>
-      </div>
-
-      <!-- Active checklist items — injected by renderDeferredList() in app.js -->
-      <div class="deferred-list" id="deferredList"></div>
-
-      <!-- Empty state — shown when no active deferred tabs -->
-      <div class="deferred-empty" id="deferredEmpty" style="display:none">
-        Nothing saved. Living in the moment.
-      </div>
-
-      <!-- Archive section — collapsed by default -->
-      <div class="deferred-archive" id="deferredArchive" style="display:none">
-        <button class="archive-toggle" id="archiveToggle">
-          <svg class="archive-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-          Archive
-          <span class="archive-count" id="archiveCount"></span>
-        </button>
-        <div class="archive-body" id="archiveBody" style="display:none">
-          <input type="text" class="archive-search" id="archiveSearch" placeholder="Search archived tabs...">
-          <div class="archive-list" id="archiveList"></div>
+  <main class="homepage-shell">
+    <section class="mode-panel active" id="nowModePanel" data-mode-panel="now">
+      <div class="pinned-section" id="pinnedSection">
+        <div class="section-header">
+          <h2>Pinned</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="pinnedCount"></div>
         </div>
+        <div class="pinned-list" id="pinnedList"></div>
+        <div class="pinned-empty" id="pinnedEmpty">Pin a stable shortcut from an open tab.</div>
       </div>
-    </div>
 
-  </div><!-- end .dashboard-columns -->
+      <div class="active-section" id="openTabsSection" style="display:none">
+        <div class="section-header">
+          <h2 id="openTabsSectionTitle">Open now</h2>
+          <div class="section-line"></div>
+          <div class="section-count" id="openTabsSectionCount"></div>
+        </div>
+        <div class="missions" id="openTabsMissions"></div>
+      </div>
+    </section>
+
+    <section class="mode-panel" id="readingInboxModePanel" data-mode-panel="reading-inbox">
+      <div class="reading-layout">
+        <div class="reading-queue-panel">
+          <div class="section-header">
+            <h2>Reading inbox</h2>
+            <div class="section-line"></div>
+            <div class="section-count" id="readingQueueCount">0 active</div>
+          </div>
+
+          <div class="reading-view-toggle" id="readingViewToggle">
+            <button class="reading-view-btn active" type="button" data-reading-view="active">Active</button>
+            <button class="reading-view-btn" type="button" data-reading-view="read">Read</button>
+          </div>
+
+          <div class="reading-queue-list" id="readingInboxList"></div>
+          <div class="reading-queue-empty" id="readingInboxEmpty">
+            Save your first article from Now to start a reading inbox.
+          </div>
+        </div>
+
+        <aside class="topic-panel" id="topicSummaryPanel">
+          <div class="section-header">
+            <h2>Topic overview</h2>
+            <div class="section-line"></div>
+          </div>
+          <div class="topic-panel-body" id="topicSummaryBody">
+            <p class="topic-panel-lead">This panel will summarize your backlog by topic instead of opening into article detail.</p>
+            <p class="topic-panel-copy">Once items are saved, analyzed, and grouped, this becomes the calm decision layer for what to read next.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
 
   <!-- ================================================================
        FOOTER — global stats + refresh control
@@ -125,9 +143,61 @@
   <span id="toastText"></span>
 </div>
 
+<aside class="settings-drawer" id="settingsDrawer" aria-hidden="true">
+  <div class="settings-drawer-header">
+    <div>
+      <h2>Settings</h2>
+      <p>Provider setup and a lightweight debug surface stay inside the homepage.</p>
+    </div>
+    <button class="settings-close" data-action="close-settings" type="button" aria-label="Close settings">Close</button>
+  </div>
+
+  <div class="settings-drawer-body">
+    <section class="settings-block">
+      <h3>AI Provider</h3>
+      <p class="settings-block-copy">Use a single OpenAI-compatible provider. Article content only leaves the browser when analysis runs against this host.</p>
+      <div class="settings-field">
+        <label for="settingsBaseUrl">Base URL</label>
+        <input id="settingsBaseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off">
+      </div>
+      <div class="settings-field">
+        <label for="settingsApiKey">API Key</label>
+        <input id="settingsApiKey" type="password" placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="settings-field">
+        <label for="settingsModelId">Model ID</label>
+        <input id="settingsModelId" type="text" placeholder="gpt-4.1-mini" autocomplete="off">
+      </div>
+      <div class="settings-actions">
+        <button class="settings-test-button" type="button" data-action="test-ai-settings">Test connection</button>
+        <button class="settings-test-button" type="button" data-action="save-ai-settings">Save settings</button>
+      </div>
+      <div class="settings-status" id="settingsStatus">Not configured</div>
+    </section>
+
+    <section class="settings-block">
+      <h3>Debug</h3>
+      <p class="settings-block-copy">Recent article pipeline states stay visible here so you can debug capture, analysis, and assignment without leaving the homepage.</p>
+      <div class="debug-list" id="debugList">
+        <div class="debug-item">
+          <h4>No pipeline activity yet</h4>
+          <p>Recent article jobs, errors, host usage, and retry controls will appear here.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</aside>
+
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
 <script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
+<script src="lib/schema.js"></script>
+<script src="lib/db.js"></script>
+<script src="lib/pinned-repo.js"></script>
+<script src="lib/articles-repo.js"></script>
+<script src="lib/topics-repo.js"></script>
+<script src="lib/jobs-repo.js"></script>
+<script src="lib/homepage-controller.js"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->
 <script src="app.js"></script>
