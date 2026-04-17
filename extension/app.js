@@ -1591,6 +1591,62 @@ async function renderDashboard() {
   await renderStaticDashboard();
 }
 
+let localConfigLoadPromise = null;
+
+async function hasPackagedFile(path) {
+  if (
+    typeof chrome === 'undefined' ||
+    !chrome.runtime ||
+    typeof chrome.runtime.getPackageDirectoryEntry !== 'function'
+  ) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    chrome.runtime.getPackageDirectoryEntry((root) => {
+      if (!root) {
+        resolve(false);
+        return;
+      }
+
+      root.getFile(
+        path,
+        { create: false },
+        () => resolve(true),
+        () => resolve(false)
+      );
+    });
+  });
+}
+
+async function loadOptionalLocalConfig() {
+  if (localConfigLoadPromise) {
+    return localConfigLoadPromise;
+  }
+
+  localConfigLoadPromise = (async () => {
+    const configUrl =
+      typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL
+        ? chrome.runtime.getURL('config.local.js')
+        : 'config.local.js';
+
+    const exists = await hasPackagedFile('config.local.js');
+    if (!exists) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = configUrl;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', resolve, { once: true });
+      document.head.appendChild(script);
+    });
+  })();
+
+  return localConfigLoadPromise;
+}
+
 window.addEventListener('tabout:reading-view-changed', async () => {
   try {
     await renderReadingInboxSurface();
@@ -2086,4 +2142,12 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+loadOptionalLocalConfig()
+  .catch((error) => {
+    console.warn('[tab-out] Optional local config failed to load:', error);
+  })
+  .finally(() => {
+    renderDashboard().catch((error) => {
+      console.error('[tab-out] Failed to initialize dashboard:', error);
+    });
+  });
