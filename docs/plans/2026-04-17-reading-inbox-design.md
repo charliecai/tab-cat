@@ -4,6 +4,8 @@
 
 **Summary:** Reposition Tab Out from a tab overview extension into a browser-native decision layer for tab debt. The extension remains a pure Chrome extension, introduces `IndexedDB` as the primary storage layer for captured reading items, and adds a second homepage mode for backlog processing.
 
+**Implementation Snapshot:** Phase 1 now includes the `Now / Reading inbox` shell, `Pinned v1`, IndexedDB-backed article records, an article-scoped background pipeline (`capture -> analyze -> assign`), a lightweight topic summary panel, and an in-page settings/debug drawer for one OpenAI-compatible provider.
+
 ---
 
 ## Product Positioning
