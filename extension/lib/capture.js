@@ -12,39 +12,64 @@
     );
   }
 
-  async function waitForTabComplete(tabId) {
-    return new Promise((resolve) => {
+  function createCaptureError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+  }
+
+  async function waitForTabComplete(tabId, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      let timeoutId = null;
+      const cleanup = () => {
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        if (chrome.tabs.onRemoved && chrome.tabs.onRemoved.removeListener) {
+          chrome.tabs.onRemoved.removeListener(onRemoved);
+        }
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      };
+
       const onUpdated = (updatedTabId, changeInfo) => {
         if (updatedTabId !== tabId) return;
         if (changeInfo.status !== 'complete') return;
-        chrome.tabs.onUpdated.removeListener(onUpdated);
+        cleanup();
         resolve();
       };
+
+      const onRemoved = (removedTabId) => {
+        if (removedTabId !== tabId) return;
+        cleanup();
+        reject(createCaptureError('Source tab was closed before capture could finish', 'source_tab_closed_before_payload'));
+      };
+
       chrome.tabs.onUpdated.addListener(onUpdated);
+      if (chrome.tabs.onRemoved && chrome.tabs.onRemoved.addListener) {
+        chrome.tabs.onRemoved.addListener(onRemoved);
+      }
+      timeoutId = setTimeout(() => {
+        cleanup();
+        reject(createCaptureError('Source tab did not finish loading before capture timed out', 'source_tab_loading'));
+      }, timeoutMs);
     });
   }
 
   async function captureArticle(article) {
     if (isUnsupportedCaptureUrl(article.url)) {
-      const error = new Error('Capture unavailable on this page');
-      error.code = 'unsupported_url';
-      throw error;
+      throw createCaptureError('Capture unavailable on this page', 'unsupported_url');
     }
 
     const sourceRef = Number(article.source_ref);
     if (!sourceRef) {
-      const error = new Error('Source tab is no longer available');
-      error.code = 'source_tab_closed_before_payload';
-      throw error;
+      throw createCaptureError('Source tab is no longer available', 'source_tab_closed_before_payload');
     }
 
     let tab;
     try {
       tab = await chrome.tabs.get(sourceRef);
     } catch {
-      const error = new Error('Source tab was closed before capture could start');
-      error.code = 'source_tab_closed_before_payload';
-      throw error;
+      throw createCaptureError('Source tab was closed before capture could start', 'source_tab_closed_before_payload');
     }
 
     if (tab.discarded) {
@@ -64,9 +89,7 @@
       type: 'tabout:capture',
     });
     if (!response || !response.ok) {
-      const error = new Error(response && response.error ? response.error : 'Capture messaging failed');
-      error.code = 'runtime_message_failed';
-      throw error;
+      throw createCaptureError(response && response.error ? response.error : 'Capture messaging failed', 'runtime_message_failed');
     }
 
     return response.payload;

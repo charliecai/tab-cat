@@ -214,18 +214,23 @@
       return;
     }
 
+    let failureState = null;
     try {
       if (['queued', 'capturing', 'capture_failed'].includes(job.processing_state)) {
+        failureState = 'capture_failed';
         const captured = await runCaptureStage(article, job);
         await runJob(await globalThis.TabOutJobsRepo.getJobByArticleId(job.article_id));
         return captured;
       }
       if (['captured', 'analyzing', 'analysis_failed'].includes(job.processing_state)) {
+        failureState = 'analysis_failed';
         const result = await runAnalysisStage(article, job);
+        failureState = 'assignment_failed';
         await runAssignmentStage(result.article, result.analysis, await globalThis.TabOutJobsRepo.getJobByArticleId(job.article_id));
         return;
       }
       if (['analyzed', 'assigning', 'assignment_failed'].includes(job.processing_state)) {
+        failureState = 'assignment_failed';
         const current = await globalThis.TabOutArticlesRepo.getArticleById(job.article_id);
         const analysis = {
           summaryShort: current.summary_short,
@@ -243,15 +248,7 @@
         return;
       }
     } catch (error) {
-      if (job.processing_state === 'queued' || job.processing_state === 'capturing' || job.processing_state === 'capture_failed') {
-        await failJob(article, job, 'capture_failed', error);
-        return;
-      }
-      if (job.processing_state === 'captured' || job.processing_state === 'analyzing' || job.processing_state === 'analysis_failed') {
-        await failJob(article, job, 'analysis_failed', error);
-        return;
-      }
-      await failJob(article, job, 'assignment_failed', error);
+      await failJob(article, job, failureState || 'assignment_failed', error);
     }
   }
 
