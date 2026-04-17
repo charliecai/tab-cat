@@ -5,6 +5,7 @@
   const state = {
     mode: 'now',
     readingView: 'active',
+    selectedArticleId: null,
     inboxCount: 0,
     initialized: false,
   };
@@ -54,6 +55,15 @@
     const queueCount = byId('readingQueueCount');
     if (badge) badge.textContent = String(count);
     if (queueCount) queueCount.textContent = `${count} active`;
+  }
+
+  function setSelectedArticleId(articleId) {
+    state.selectedArticleId = articleId || null;
+    window.dispatchEvent(
+      new CustomEvent('tabout:selected-article-changed', {
+        detail: { articleId: state.selectedArticleId },
+      })
+    );
   }
 
   function toggleSettings(forceOpen) {
@@ -156,6 +166,8 @@
   namespace.setReadingView = setReadingView;
   namespace.getReadingView = () => state.readingView;
   namespace.setReadingInboxCount = setReadingInboxCount;
+  namespace.setSelectedArticleId = setSelectedArticleId;
+  namespace.getSelectedArticleId = () => state.selectedArticleId;
   namespace.renderPinned = renderPinned;
   namespace.renderReadingInboxList = renderReadingInboxList;
   namespace.setTopicSummary = setTopicSummary;

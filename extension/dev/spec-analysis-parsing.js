@@ -9,5 +9,12 @@ test('analyzeArticleResponse normalizes summary fields', () => {
     summaryShort: 'Short summary',
     mainTopicLabel: 'AI workflow',
     recommendedAction: 'read_now',
+    whyRecommended: null,
+    subAngles: [],
+    keywords: [],
+    readingQuestion: null,
+    contentType: null,
+    noveltyScore: null,
+    duplicateCandidates: [],
   });
 });

@@ -1307,6 +1307,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   gap: 12px;
   padding: 14px 0;
   border-top: 1px solid rgba(154, 145, 138, 0.14);
+  cursor: pointer;
+}
+
+.reading-item.selected {
+  border-top-color: rgba(200, 113, 58, 0.32);
 }
 
 .reading-item-main {
@@ -1580,6 +1585,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   line-height: 1.5;
 }
 
+.debug-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .chip-save-emphasis {
   color: var(--accent-amber);
   background: rgba(200, 113, 58, 0.1);
@@ -1587,6 +1597,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .chip-pin {
   color: var(--accent-slate);
+}
+
+.chip-action[disabled] {
+  opacity: 0.36;
+  cursor: not-allowed;
 }
 
 @media (max-width: 960px) {

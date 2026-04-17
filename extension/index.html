@@ -164,10 +164,12 @@
         <label for="settingsApiKey">API Key</label>
         <input id="settingsApiKey" type="password" placeholder="sk-..." autocomplete="off">
       </div>
+      <p class="settings-block-copy">Stored in plaintext inside your browser profile. Do not use on shared machines.</p>
       <div class="settings-field">
         <label for="settingsModelId">Model ID</label>
         <input id="settingsModelId" type="text" placeholder="gpt-4.1-mini" autocomplete="off">
       </div>
+      <p class="settings-block-copy">Captured article content will be sent to the configured AI host when analysis runs.</p>
       <div class="settings-actions">
         <button class="settings-test-button" type="button" data-action="test-ai-settings">Test connection</button>
         <button class="settings-test-button" type="button" data-action="save-ai-settings">Save settings</button>
@@ -193,10 +195,13 @@
 <script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
 <script src="lib/schema.js"></script>
 <script src="lib/db.js"></script>
+<script src="lib/settings-repo.js"></script>
 <script src="lib/pinned-repo.js"></script>
 <script src="lib/articles-repo.js"></script>
 <script src="lib/topics-repo.js"></script>
 <script src="lib/jobs-repo.js"></script>
+<script src="lib/topic-summary.js"></script>
+<script src="lib/digest-renderer.js"></script>
 <script src="lib/homepage-controller.js"></script>
 
 <!-- Main dashboard logic — loads last so the DOM is ready -->

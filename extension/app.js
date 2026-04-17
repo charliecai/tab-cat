@@ -441,6 +441,15 @@ function isLikelyReadingTab(tab) {
   }
 }
 
+function isUnsupportedSaveUrl(url) {
+  return (
+    !url ||
+    url.startsWith('file://') ||
+    url.startsWith('https://chromewebstore.google.com') ||
+    url.startsWith('https://chrome.google.com/webstore')
+  );
+}
+
 
 /* ----------------------------------------------------------------
    UI HELPERS
@@ -965,7 +974,7 @@ function renderReadingInboxRow(article) {
     : '';
 
   return `
-    <article class="reading-item" data-article-id="${article.id}">
+    <article class="reading-item" data-action="select-reading-article" data-article-id="${article.id}">
       <div class="reading-item-main">
         <div class="reading-item-heading">
           <button class="reading-item-title" type="button" data-action="open-article-source" data-article-url="${safeUrl}" title="${safeTitle}">${article.title || article.url}</button>
@@ -1067,6 +1076,14 @@ async function renderReadingInboxSurface() {
     sort: 'last_saved_at_desc',
   });
   const topics = await topicsRepo.listTopics();
+  const selectedArticleId = controller.getSelectedArticleId();
+  const nextSelectedArticleId =
+    (selectedArticleId && articles.some((article) => article.id === selectedArticleId) && selectedArticleId) ||
+    (articles[0] ? articles[0].id : null);
+  if (nextSelectedArticleId !== selectedArticleId) {
+    controller.setSelectedArticleId(nextSelectedArticleId);
+    return;
+  }
 
   controller.renderReadingInboxList(
     articles.map(renderReadingInboxRow),
@@ -1074,11 +1091,111 @@ async function renderReadingInboxSurface() {
       ? 'Save your first article from Now to start a reading inbox.'
       : 'Nothing marked as read yet.'
   );
-  controller.setTopicSummary(deriveTopicSummary(topics, articles));
+  document.querySelectorAll('.reading-item').forEach((row) => {
+    row.classList.toggle('selected', row.dataset.articleId === nextSelectedArticleId);
+  });
+  const viewModel = globalThis.TabOutTopicSummary.buildTopicSummaryViewModel({
+    articles,
+    topics,
+    selectedArticleId: nextSelectedArticleId,
+  });
+  controller.setTopicSummary(globalThis.TabOutDigestRenderer.renderTopicSummaryPanel(viewModel));
+  await renderDebugSurface();
 }
 
 async function renderInboxSurfaces() {
   await Promise.all([renderPinnedSurface(), renderReadingInboxSurface()]);
+}
+
+async function kickBackgroundJobs() {
+  try {
+    await chrome.runtime.sendMessage({ type: 'tabout:jobs:kick' });
+  } catch (error) {
+    console.warn('[tab-out] Failed to kick jobs runner:', error);
+  }
+}
+
+function getAiSettingsDraft() {
+  return {
+    base_url: document.getElementById('settingsBaseUrl')?.value.trim() || '',
+    api_key: document.getElementById('settingsApiKey')?.value.trim() || '',
+    model_id: document.getElementById('settingsModelId')?.value.trim() || '',
+  };
+}
+
+function setSettingsStatus(text) {
+  const status = document.getElementById('settingsStatus');
+  if (status) {
+    status.textContent = text;
+  }
+}
+
+async function renderDebugSurface() {
+  const list = document.getElementById('debugList');
+  if (!list || !globalThis.TabOutArticlesRepo || !globalThis.TabOutJobsRepo || !globalThis.TabOutSettingsRepo) return;
+
+  const [articles, jobs, aiStatus] = await Promise.all([
+    globalThis.TabOutArticlesRepo.listArticles(),
+    globalThis.TabOutJobsRepo.listJobs(),
+    globalThis.TabOutSettingsRepo.getAiStatus(),
+  ]);
+
+  const rows = articles
+    .slice()
+    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+    .slice(0, 6)
+    .map((article) => {
+      const job = jobs.find((item) => item.article_id === article.id);
+      const errorText = article.last_error_message || job?.last_error_message || 'No recent error';
+      const hostText = aiStatus.host || 'No AI host';
+      const analyzedAt = article.last_analyzed_at ? ` · analyzed ${timeAgo(article.last_analyzed_at)}` : '';
+      const retryAction = ['capture_failed', 'analysis_failed', 'assignment_failed'].includes(article.processing_state)
+        ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">Retry</button>`
+        : '';
+      return `
+        <div class="debug-item">
+          <h4>${article.title || article.url}</h4>
+          <p>${getProcessingLabel(article.processing_state)} · ${article.lifecycle_state} · ${hostText}${analyzedAt}</p>
+          <p>${errorText}</p>
+          ${retryAction ? `<div class="debug-item-actions">${retryAction}</div>` : ''}
+        </div>
+      `;
+    })
+    .join('');
+
+  list.innerHTML =
+    rows ||
+    `
+      <div class="debug-item">
+        <h4>No pipeline activity yet</h4>
+        <p>Recent article jobs, errors, host usage, and retry controls will appear here.</p>
+      </div>
+    `;
+}
+
+async function loadSettingsSurface() {
+  if (!globalThis.TabOutSettingsRepo) return;
+  const [settings, status] = await Promise.all([
+    globalThis.TabOutSettingsRepo.getAiSettings(),
+    globalThis.TabOutSettingsRepo.getAiStatus(),
+  ]);
+
+  const baseUrlInput = document.getElementById('settingsBaseUrl');
+  const apiKeyInput = document.getElementById('settingsApiKey');
+  const modelIdInput = document.getElementById('settingsModelId');
+  if (baseUrlInput) baseUrlInput.value = settings.base_url || '';
+  if (apiKeyInput) apiKeyInput.value = settings.api_key || '';
+  if (modelIdInput) modelIdInput.value = settings.model_id || '';
+
+  if (status.state === 'ready') {
+    setSettingsStatus(`Ready${status.host ? ` · ${status.host}` : ''}`);
+  } else if (status.state === 'failed') {
+    setSettingsStatus(`Last request failed${status.last_error ? ` · ${status.last_error}` : ''}`);
+  } else {
+    setSettingsStatus('Not configured');
+  }
+
+  await renderDebugSurface();
 }
 
 
@@ -1137,6 +1254,7 @@ function renderDomainCard(group) {
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
     const saveClass = isLikelyReadingTab(tab) ? ' chip-save-emphasis' : '';
+    const saveDisabled = isUnsupportedSaveUrl(tab.url);
     const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
     const safeTitle = label.replace(/"/g, '&quot;');
     let domain = '';
@@ -1149,7 +1267,7 @@ function renderDomainCard(group) {
         <button class="chip-action chip-pin" data-action="pin-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Pin to shortcuts">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m15 5.25 3.75 3.75m-2.258-5.492 1.533 1.533a2.25 2.25 0 0 1 0 3.182l-7.343 7.343a4.5 4.5 0 0 1-1.897 1.13L5.25 18.75l1.049-3.535a4.5 4.5 0 0 1 1.13-1.897l7.343-7.343a2.25 2.25 0 0 1 3.182 0Z" /></svg>
         </button>
-        <button class="chip-action chip-save${saveClass}" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="Save for later">
+        <button class="chip-action chip-save${saveClass}" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${saveDisabled ? 'Capture unavailable on this page' : 'Save for later'}" ${saveDisabled ? 'disabled aria-disabled="true"' : ''}>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
         <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
@@ -1466,7 +1584,7 @@ async function renderStaticDashboard() {
   checkTabOutDupes();
 
   // --- Render pinned + reading inbox surfaces ---
-  await renderInboxSurfaces();
+  await Promise.all([renderInboxSurfaces(), loadSettingsSurface()]);
 }
 
 async function renderDashboard() {
@@ -1480,6 +1598,25 @@ window.addEventListener('tabout:reading-view-changed', async () => {
     console.warn('[tab-out] Failed to rerender reading inbox after view change:', error);
   }
 });
+
+window.addEventListener('tabout:selected-article-changed', async () => {
+  try {
+    await renderReadingInboxSurface();
+  } catch (error) {
+    console.warn('[tab-out] Failed to rerender reading inbox after article selection:', error);
+  }
+});
+
+if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || message.type !== 'tabout:data-changed') return;
+    renderInboxSurfaces()
+      .then(() => renderDebugSurface())
+      .catch((error) => {
+        console.warn('[tab-out] Failed to refresh after background update:', error);
+      });
+  });
+}
 
 
 /* ----------------------------------------------------------------
@@ -1530,6 +1667,15 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'select-reading-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId) return;
+    const controller = getHomepageController();
+    if (!controller) return;
+    controller.setSelectedArticleId(articleId);
+    return;
+  }
+
   if (action === 'open-article-source') {
     e.stopPropagation();
     const articleUrl = actionEl.dataset.articleUrl;
@@ -1558,6 +1704,36 @@ document.addEventListener('click', async (e) => {
     });
     await renderPinnedSurface();
     showToast('Pinned to Now');
+    return;
+  }
+
+  if (action === 'save-ai-settings') {
+    if (!globalThis.TabOutSettingsRepo) return;
+    const draft = getAiSettingsDraft();
+    await globalThis.TabOutSettingsRepo.saveAiSettings(draft);
+    await globalThis.TabOutSettingsRepo.saveAiStatus({
+      state: draft.base_url && draft.api_key && draft.model_id ? 'saved' : 'not_configured',
+      host: getSiteNameFromUrl(draft.base_url),
+      last_error: null,
+    });
+    await loadSettingsSurface();
+    showToast('Settings saved');
+    return;
+  }
+
+  if (action === 'test-ai-settings') {
+    try {
+      setSettingsStatus('Testing connection…');
+      const result = await chrome.runtime.sendMessage({ type: 'tabout:ai:test-connection' });
+      if (!result || !result.ok) {
+        throw new Error(result && result.error ? result.error : 'Connection test failed');
+      }
+      await loadSettingsSurface();
+      showToast('AI connection ready');
+    } catch (error) {
+      setSettingsStatus(`Last request failed · ${error.message}`);
+      showToast('AI connection failed');
+    }
     return;
   }
 
@@ -1614,6 +1790,7 @@ document.addEventListener('click', async (e) => {
 
     try {
       const result = await saveTabForLater({ id: tabId, url: tabUrl, title: tabTitle });
+      await kickBackgroundJobs();
       await renderReadingInboxSurface();
       if (result.deduped) {
         showToast(result.requeued ? 'Already saved. Re-queued for processing.' : 'Already saved');
@@ -1701,6 +1878,7 @@ document.addEventListener('click', async (e) => {
       article_id: articleId,
       processing_state: checkpointState,
     });
+    await kickBackgroundJobs();
     await renderReadingInboxSurface();
     showToast('Queued for retry');
     return;
