@@ -2,7 +2,7 @@
 
 **日期：** 2026-04-17
 
-**摘要：** 将 Tab Out 从一个标签页总览插件，重新定位为一个由 AI 辅助的阅读暂存箱。该扩展仍然保持为纯 Chrome 扩展，使用 `IndexedDB` 作为已保存阅读条目的主存储层，并新增第二种首页模式来处理阅读积压。
+**摘要：** 将 Tab Out 从一个标签页总览插件，重新定位为一个浏览器原生的 tab 决策层。该扩展仍然保持为纯 Chrome 扩展，使用 `IndexedDB` 作为已保存阅读条目的主存储层，并新增第二种首页模式来处理阅读积压。
 
 ---
 
@@ -13,7 +13,7 @@ Tab Out 不再只是一个展示当前打开标签页的仪表盘。它将变成
 1. 防止重要的待读页面丢失。
 2. 通过 AI 聚类、去重和阅读建议，减少阅读积压。
 
-这个扩展**不是**用户的永久知识库。它是一个临时处理层，用户会在处理完成后，再把有价值的内容迁移到 Obsidian 或其他笔记工具中。
+这个扩展**不是**用户的永久知识库。它是一个临时处理层，用户会在处理完成后，再把有价值的内容迁移到 Obsidian 或其他笔记工具中。更深一层，它是浏览器里的**决策层**：决定哪些内容留在 `Now`，哪些被 Pin，哪些进入 `Reading inbox`。
 
 ---
 
@@ -36,6 +36,7 @@ Tab Out 不再只是一个展示当前打开标签页的仪表盘。它将变成
 - 双首页模式：`Now` 和 `Reading inbox`
 - `Pinned` 单入口快捷方式，支持手动管理
 - 从 `Open now` 手动触发 `Save for later`
+- same-URL 去重：重复保存时只更新旧条目的 `last_saved_at`
 - 使用 `IndexedDB` 作为文章和 topic 的主存储
 - 使用 `Defuddle-only` 抓取内容并转换为 Markdown
 - OpenAI-compatible AI 设置：
@@ -44,7 +45,11 @@ Tab Out 不再只是一个展示当前打开标签页的仪表盘。它将变成
   - `model_id`
 - 文章级 AI 分析
 - Topic 创建、Topic 归属判断、Topic Digest 生成
+- 基于 active inbox 数量的 backlog 提示
+- 在 article-like tabs 上更显性的 `Save for later`
+- Settings 内的轻量 debug 面板
 - Inbox 动作：
+  - `Mark as read`
   - `Archive`
   - `Delete`
   - `Retry`
@@ -57,6 +62,9 @@ Tab Out 不再只是一个展示当前打开标签页的仪表盘。它将变成
 - 本地图片下载
 - PDF 抓取或下载
 - 云端同步
+- post-capture close / auto-close
+- 保存时的 near-duplicate hint
+- 键盘分拣快捷键
 - Topic 手工编辑工具
 - 分组式 pinned
 - 动作型 pinned 条目
@@ -88,6 +96,8 @@ Tab Out 不再只是一个展示当前打开标签页的仪表盘。它将变成
 - 新增：
   - `Save for later`
   - `Pin`
+- 对明显像文章的页面，更强化 `Save for later` 的视觉提示；对首页、工具页、列表页则更克制
+- 对不支持采集的页面，`Save for later` 直接禁用并解释原因
 
 ### 模式二：Reading inbox
 
@@ -118,6 +128,17 @@ Tab Out 不再只是一个展示当前打开标签页的仪表盘。它将变成
 - 展示的是 Topic 级别的理解和建议，而不是单篇文章详情
 - 默认视图是 Topic 层的整体理解
 - 当用户选择某个 Inbox 条目时，右侧高亮它在对应 Topic 中的位置
+- 右侧保持为轻量决策面板，而不是第二个阅读器
+
+#### Settings / Debug
+
+- Settings 放在主页中
+- 除 AI provider 配置外，还包含一个轻量 debug 面板：
+  - 最近 jobs
+  - 当前状态
+  - 最后错误原因
+  - 当前 AI host
+  - retry 动作
 
 ---
 
@@ -127,12 +148,14 @@ V1 中的采集完全由手动触发。
 
 1. 用户打开 `Now`
 2. 用户在 `Open now` 中对某个标签页点击 `Save for later`
-3. 扩展立即创建一条本地 inbox 记录
-4. 扩展异步使用 `Defuddle` 抓取文章内容
-5. 抓取期间，源 tab 保持打开状态，抓取成功后才允许继续关闭
-6. 抓取成功后，扩展执行文章级 AI 分析
-7. 分析完成后，文章要么并入现有 Topic，要么作为种子创建新 Topic
-8. Topic Digest 被创建或刷新
+3. 扩展先判断该 URL 是否已经对应某个已保存条目
+4. 如果命中 strict duplicate，就提示 `Already saved`，更新旧条目的 `last_saved_at`，不创建新条目
+5. 否则扩展立即创建一条本地 inbox 记录
+6. background/jobs layer 异步使用 `Defuddle` 抓取文章内容
+7. 抓取期间，源 tab 保持打开状态，抓取成功后才允许继续关闭
+8. 如果 AI provider 可用，background/jobs layer 再执行文章级 AI 分析
+9. 分析完成后，文章要么并入现有 Topic，要么作为种子创建新 Topic
+10. Topic Digest 作为 downstream job 异步刷新，不阻塞文章就绪
 
 需要保证的行为：
 
@@ -140,6 +163,9 @@ V1 中的采集完全由手动触发。
 - 抓取失败不会删除 inbox 条目
 - AI 分析失败不会删除已经抓取的内容
 - 每个失败阶段都可以单独重试
+- AI 未配置或配置失效时，不阻塞 capture-first 保存
+- capture 只对瞬时错误自动重试；不支持页面和 hard failure 直接进入明确失败态
+- 如果源 tab 在抓取中途关闭，只有在 payload 已交给 background 时才继续，否则进入可重试失败态
 
 ---
 
@@ -195,6 +221,8 @@ Topic 由种子文章触发创建。
 ### 原始抓取层
 
 - `id`
+- `source_type`
+- `source_ref`
 - `url`
 - `canonical_url`
 - `title`
@@ -202,6 +230,7 @@ Topic 由种子文章触发创建。
 - `author`
 - `published_at`
 - `saved_at`
+- `last_saved_at`
 - `markdown_content`
 - `excerpt`
 - `lead_image_url`
@@ -287,6 +316,8 @@ V1 只支持一种配置方式：
 
 配置入口放在扩展主页内部，而不是单独的 options page。
 
+`base_url` 在 V1 只允许使用 OpenAI-compatible 的 `https://` endpoint，不允许明文 `http://`。
+
 ---
 
 ## 存储与状态
@@ -294,6 +325,7 @@ V1 只支持一种配置方式：
 ### 主存储
 
 - `IndexedDB` 是阅读条目、Topic 和 AI 结果的系统主记录源
+- V1 不迁移旧的 `chrome.storage.local.deferred` 数据，新的 reading system 从 `IndexedDB` 干净起步
 
 ### 扩展设置
 
@@ -339,11 +371,15 @@ V1 只支持一种配置方式：
 
 - 保持扩展整体架构简单，并坚持浏览器原生
 - 引入围绕以下职责的小型模块化结构：
-  - storage
-  - capture
+  - homepage controller / UI state
+  - storage repositories
+  - capture orchestration
   - AI client
-  - topic engine
+  - topic / digest engines
+- `app.js` 退化为 bootstrap 入口，不再继续承载新的 inbox 逻辑
+- repository 只负责持久化；topic matching、AI parsing、digest generation、jobs state transitions 等纯逻辑都进入 engine/service 层
 - 后续新增或修改 UI 时，统一遵循 `DESIGN.md` 中定义的字体、颜色、层级和交互风格
+- `capture -> analyze -> topic refresh` 全链路由 background/jobs layer 拥有，new-tab UI 只负责发起动作和展示状态
 - 避免引入沉重的文件系统集成
 - 避免与某个 provider 强耦合
 - 优先展示明确的 UI 状态，而不是隐藏式后台魔法
