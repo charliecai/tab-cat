@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-17
 
-**Summary:** Reposition Tab Out from a tab overview extension into an AI-assisted reading inbox. The extension remains a pure Chrome extension, keeps `IndexedDB` as the primary storage layer for captured reading items, and adds a second homepage mode for backlog processing.
+**Summary:** Reposition Tab Out from a tab overview extension into an AI-assisted reading inbox. The extension remains a pure Chrome extension, introduces `IndexedDB` as the primary storage layer for captured reading items, and adds a second homepage mode for backlog processing.
 
 ---
 
@@ -45,6 +45,7 @@ The extension is **not** the user’s permanent knowledge base. It is a temporar
 - Article-level AI analysis
 - Topic creation, topic assignment, and topic digest generation
 - Inbox actions:
+  - `Mark as read`
   - `Archive`
   - `Delete`
   - `Retry`
@@ -66,6 +67,8 @@ The extension is **not** the user’s permanent knowledge base. It is a temporar
 ---
 
 ## Homepage Structure
+
+The homepage exposes both modes through a single top-level mode switcher. The `Reading inbox` entry in the switcher shows a live count of active (unread, non-archived) items — e.g. `Reading inbox (12)` — so users who are working in `Now` still notice when their backlog grows. The badge updates as items are saved, read, archived, or deleted.
 
 ### Mode 1: Now
 
@@ -107,6 +110,7 @@ The extension is **not** the user’s permanent knowledge base. It is a temporar
   - Recommended action
 - Supported actions:
   - Open source
+  - Mark as read
   - Archive
   - Delete
   - Retry
@@ -127,17 +131,32 @@ Capture is entirely manual in V1.
 1. User opens `Now`.
 2. User clicks `Save for later` on a tab inside `Open now`.
 3. The extension immediately creates a local inbox record.
-4. The extension asynchronously captures the article content with `Defuddle`.
-5. After capture succeeds, the extension runs article-level AI analysis.
-6. The analyzed article is matched into an existing topic or seeds a new topic.
-7. The topic digest is created or refreshed.
+4. The extension asynchronously captures the article content with `Defuddle` via a content script injected into the source tab.
+5. The source tab stays open while capture is running. After capture succeeds, the UI may offer a close action or leave the tab for the user to close manually.
+6. After capture succeeds, the extension runs article-level AI analysis.
+7. The analyzed article is matched into an existing topic or seeds a new topic.
+8. The topic digest is created or refreshed.
 
-Important behavior:
+### Capture Execution Environment
 
-- The item is created before capture runs.
+- V1 runs `Defuddle` exclusively inside a content script injected into the source tab, so capture works against the real rendered DOM.
+- Because capture depends on the live source-tab DOM, `Save for later` does not auto-close the tab at click time.
+- Before injection, the extension checks `tab.discarded`. If the tab is discarded, the extension calls `chrome.tabs.reload` and waits for `status === 'complete'` before injecting.
+- Pages that Chrome forbids content-script injection on (e.g. `chrome://`, the Chrome Web Store, `file://` unless enabled, the extension's own pages) are unsupported. On those pages the `Save for later` action is disabled with a tooltip explaining why.
+- An `offscreen document` capture path is intentionally deferred to a future release. V1 prefers a clean failure with `Retry` over a second low-fidelity fallback that silently produces bad content.
+
+### Failure and Recovery
+
+- The inbox item is created before capture runs.
 - Failed capture does not delete the inbox item.
 - Failed AI analysis does not delete captured content.
-- Each failed stage can be retried independently.
+- Each failed stage can be retried independently via `Retry`.
+- Because the jobs runner lives inside a Manifest V3 service worker, any job can be interrupted if Chrome terminates the worker. On every extension startup and every worker wakeup, the jobs runner scans for jobs stuck in `capturing` or `analyzing` beyond a timeout threshold and rolls them back to `queued` so they can be retried automatically.
+
+### Throughput Control
+
+- The jobs runner enforces a small concurrency cap (`concurrency = 2` in V1) so that saving many tabs at once does not fan out into a burst of AI requests.
+- Failed network calls to the AI provider use a simple exponential backoff before being marked `capture_failed` or `analyze_failed`, reducing 429/5xx storms against self-hosted OpenAI-compatible endpoints.
 
 ---
 
@@ -172,7 +191,7 @@ Topics are created from seed articles.
 
 - Every article has exactly one `main_topic_id`.
 - Every article may also carry `sub_angles`.
-- Articles do not belong to multiple topics.
+- Articles do not belong to multiple topics in V1.
 - Cross-topic relationships are expressed through `related_topics`, not multi-membership.
 
 ### Duplicate Model
@@ -210,6 +229,7 @@ Strict duplicates should not create new reading work. Overlap groups should help
 ### Article Analysis Layer
 
 - `summary_short`
+- `main_topic_id`
 - `main_topic_label`
 - `sub_angles`
 - `keywords`
@@ -229,7 +249,6 @@ Strict duplicates should not create new reading work. Overlap groups should help
 ### Lifecycle Layer
 
 - `inbox_status`
-- `read_status`
 - `last_analyzed_at`
 - `last_opened_at`
 
@@ -243,7 +262,6 @@ For V1, the minimum UI-driving set is:
 - `main_topic_label`
 - `recommended_action`
 - `inbox_status`
-- `read_status`
 
 ---
 
@@ -287,6 +305,13 @@ This single configured model is used for:
 
 The configuration UI lives inside the main extension homepage, not a separate options page.
 
+### Credential Storage and Handling
+
+- The API key is persisted in `chrome.storage.local` in plaintext. Browser extensions have no truly secure at-rest storage — any encryption scheme ultimately needs the key in memory to issue requests, and all scripts inside the extension share that memory.
+- The settings UI shows a clear notice next to the API key field: **"Stored in plaintext inside your browser profile. Do not use on shared machines."**
+- Architecturally, the API key is only read by the background/jobs layer that issues AI requests. No content script ever receives or touches the key. This keeps the key out of the page context even if the extension later adds content scripts for capture or enrichment.
+- A future release may offer an optional "lock" mode that encrypts the key with a WebCrypto-derived key held only in `chrome.storage.session`, unlocked by a user password on each session.
+
 ---
 
 ## Storage and State
@@ -302,10 +327,20 @@ The configuration UI lives inside the main extension homepage, not a separate op
 ### Article Lifecycle
 
 - `active`
+- `read`
 - `archived`
 - `deleted`
 
+`read` and `archived` are both terminal for active-inbox purposes but semantically distinct. `read` means the user finished reading and chose to keep the record; `archived` means the user decided to skip or defer it without reading.
+There is no separate `read_status` field in V1, the lifecycle state is the single source of truth.
+
 ### Action Definitions
+
+#### Mark as read
+
+- Moves an item from `active` to `read`
+- Retains captured content, AI analysis, and topic membership
+- Continues to count toward topic digests but is visually de-emphasized in the inbox
 
 #### Archive
 
@@ -335,9 +370,28 @@ The configuration UI lives inside the main extension homepage, not a separate op
   - AI client
   - topic engine
 - Follow `DESIGN.md` for typography, color, elevation, and interaction styling whenever UI is added or revised
+- Run Defuddle capture inside a content script injected into the source tab; never pull DOM into the service worker directly
+- Do not auto-close the source tab at save time, capture must finish first because the live DOM is the capture source
+- The jobs runner enforces `concurrency = 2` and uses exponential backoff on AI provider failures (429/5xx) before surfacing a retryable error to the user
+- On every service worker startup, roll back jobs stuck in `capturing` or `analyzing` beyond a timeout to `queued`
 - Avoid heavy file-system integration
 - Avoid provider-specific coupling
 - Prefer explicit UI states over hidden background magic
+
+---
+
+## Future Enhancements
+
+Items intentionally deferred from V1, listed so later design rounds can pick them up without rediscovery:
+
+- **Two-stage topic matching.** Use an embedding or keyword pre-filter to narrow candidate topics before sending the article to the LLM for topic selection. V1 accepts the naive "compare against all recent topics" cost; this is the first thing to optimize once topic count grows.
+- **Markdown / clipboard export.** A lightweight "Copy as Markdown" action per article, and eventually a multi-article export, so users can move selected content into Obsidian. Without this, users risk treating Tab Out as a permanent library, which contradicts the product positioning.
+- **Offscreen document as capture fallback.** Adds a secondary capture path for tabs the content script cannot reach (e.g. user closed the tab mid-save, renderer crashed). V1 deliberately ships without it to avoid dual-path complexity and the risk of low-fidelity fetch-based captures sneaking through.
+- **Multi-topic membership.** Letting one article belong to multiple topics is intentionally deferred. V1 keeps a single stable topic per article to preserve digest clarity and reduce lifecycle complexity.
+- **Pinned groups.** Multi-entry pinned collections (e.g. "Daily standup links") layered on top of V1's single-entry shortcuts.
+- **Credential lock mode.** Optional WebCrypto-based encryption of the API key using a user-supplied master password, with the derived key held in `chrome.storage.session` so it clears on browser restart.
+- **Full-library reclustering.** A manual "re-run topic matching across all articles" action for after large model or prompt changes.
+- **Advanced search and filtering.** Structured filters over topic, content type, read state, and free-text search across captured Markdown.
 
 ---
 

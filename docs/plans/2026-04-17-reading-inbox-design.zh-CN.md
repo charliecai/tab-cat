@@ -107,6 +107,7 @@ Tab Out 不再只是一个展示当前打开标签页的仪表盘。它将变成
   - 推荐动作
 - 支持的动作：
   - 打开原文
+  - Mark as read
   - Archive
   - Delete
   - Retry
@@ -128,9 +129,10 @@ V1 中的采集完全由手动触发。
 2. 用户在 `Open now` 中对某个标签页点击 `Save for later`
 3. 扩展立即创建一条本地 inbox 记录
 4. 扩展异步使用 `Defuddle` 抓取文章内容
-5. 抓取成功后，扩展执行文章级 AI 分析
-6. 分析完成后，文章要么并入现有 Topic，要么作为种子创建新 Topic
-7. Topic Digest 被创建或刷新
+5. 抓取期间，源 tab 保持打开状态，抓取成功后才允许继续关闭
+6. 抓取成功后，扩展执行文章级 AI 分析
+7. 分析完成后，文章要么并入现有 Topic，要么作为种子创建新 Topic
+8. Topic Digest 被创建或刷新
 
 需要保证的行为：
 
@@ -229,7 +231,6 @@ Topic 由种子文章触发创建。
 ### 生命周期层
 
 - `inbox_status`
-- `read_status`
 - `last_analyzed_at`
 - `last_opened_at`
 
@@ -243,7 +244,6 @@ Topic 由种子文章触发创建。
 - `main_topic_label`
 - `recommended_action`
 - `inbox_status`
-- `read_status`
 
 ---
 
@@ -302,10 +302,19 @@ V1 只支持一种配置方式：
 ### 文章生命周期
 
 - `active`
+- `read`
 - `archived`
 - `deleted`
 
+`read` 和 `archived` 都表示该条目不再属于 active inbox，但语义不同。`read` 表示用户已经读完并希望保留记录，`archived` 表示用户选择跳过或暂时搁置。V1 不再保留独立的 `read_status` 字段，生命周期状态本身就是阅读状态的唯一真源。
+
 ### 动作定义
+
+#### Mark as read
+
+- 把条目从 `active` 移动到 `read`
+- 保留抓取内容、AI 分析结果和 Topic 归属
+- 在 inbox 中做视觉弱化，但仍保留在对应 Topic 中
 
 #### Archive
 
