@@ -25,6 +25,11 @@
 
 // All open tabs — populated by fetchOpenTabs()
 let openTabs = [];
+let visibleNowTabs = [];
+let pinnedEditorState = {
+  entry: null,
+  trigger: null,
+};
 
 /**
  * fetchOpenTabs()
@@ -43,6 +48,7 @@ async function fetchOpenTabs() {
       id:       t.id,
       url:      t.url,
       title:    t.title,
+      favIconUrl: t.favIconUrl || '',
       windowId: t.windowId,
       active:   t.active,
       // Flag Tab Out's own pages so we can detect duplicate new tabs
@@ -53,6 +59,39 @@ async function fetchOpenTabs() {
     openTabs = [];
   }
 }
+
+function escapeAttribute(value) {
+  return String(value || '').replace(/"/g, '&quot;');
+}
+
+function getTabFaviconUrl(tabLike) {
+  if (!tabLike) return '';
+  if (tabLike.favIconUrl) return tabLike.favIconUrl;
+  return '';
+}
+
+function derivePinnedEntryIconUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    return `${parsed.origin}/favicon.ico`;
+  } catch {
+    return '';
+  }
+}
+
+function renderFaviconImage(src, className = 'chip-favicon', style = '') {
+  if (!src) return '';
+  const styleAttr = style ? ` style="${escapeAttribute(style)}"` : '';
+  return `<img class="${escapeAttribute(className)}" src="${escapeAttribute(src)}" alt="" data-hide-broken-image="true"${styleAttr}>`;
+}
+
+document.addEventListener('error', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLImageElement)) return;
+  if (target.dataset.hideBrokenImage !== 'true') return;
+  target.style.display = 'none';
+}, true);
 
 /**
  * closeTabsByUrls(urls)
@@ -222,20 +261,87 @@ async function closeTabOutDupes() {
 /**
  * saveTabForLater(tab)
  *
- * Saves a single tab to the "Saved for Later" list in chrome.storage.local.
- * @param {{ url: string, title: string }} tab
+ * Queues a single tab for the new Reading inbox flow.
+ * Applies same-URL dedupe and re-queues unfinished work instead of creating duplicates.
+ * @param {{ id?: number, url: string, title: string }} tab
  */
 async function saveTabForLater(tab) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  deferred.push({
-    id:        Date.now().toString(),
-    url:       tab.url,
-    title:     tab.title,
-    savedAt:   new Date().toISOString(),
-    completed: false,
-    dismissed: false,
+  const articlesRepo = globalThis.TabOutArticlesRepo;
+  const jobsRepo = globalThis.TabOutJobsRepo;
+  if (!articlesRepo || !jobsRepo) {
+    throw new Error('Reading inbox repositories are unavailable');
+  }
+
+  const sourceRef = tab.id ? String(tab.id) : null;
+
+  const existing = await articlesRepo.findArticleByCanonicalUrl(tab.url);
+  if (existing) {
+    const captureAlreadyCompleted = !['queued', 'capturing', 'capture_failed'].includes(existing.processing_state);
+    const shouldCloseAfterCapture = !captureAlreadyCompleted && Boolean(sourceRef);
+    const refreshed = await articlesRepo.updateArticle(existing.id, {
+      lifecycle_state: 'active',
+      last_saved_at: new Date().toISOString(),
+      source_ref: sourceRef || existing.source_ref || null,
+      close_source_tab_after_capture: shouldCloseAfterCapture,
+    });
+
+    const checkpointState = getRetryCheckpointState(existing.processing_state);
+    const shouldRequeue = checkpointState !== 'assigned';
+    if (!shouldRequeue) {
+      return {
+        article: refreshed,
+        deduped: true,
+        requeued: false,
+        shouldCloseNow: captureAlreadyCompleted,
+        shouldCloseAfterCapture,
+      };
+    }
+
+    const resetArticle = await articlesRepo.updateArticleProcessingState(existing.id, checkpointState);
+    const finalArticle =
+      resetArticle && (resetArticle.source_ref !== refreshed.source_ref ||
+      resetArticle.close_source_tab_after_capture !== refreshed.close_source_tab_after_capture)
+        ? await articlesRepo.updateArticle(existing.id, {
+            source_ref: refreshed.source_ref,
+            close_source_tab_after_capture: refreshed.close_source_tab_after_capture,
+          })
+        : resetArticle;
+    await jobsRepo.enqueueJob({
+      article_id: existing.id,
+      processing_state: checkpointState,
+    });
+
+    return {
+      article: finalArticle,
+      deduped: true,
+      requeued: true,
+      shouldCloseNow: captureAlreadyCompleted,
+      shouldCloseAfterCapture,
+    };
+  }
+
+  const siteName = getSiteNameFromUrl(tab.url);
+  const article = await articlesRepo.createQueuedArticle({
+    source_type: 'tab',
+    source_ref: sourceRef,
+    url: tab.url,
+    title: tab.title || tab.url,
+    site_name: siteName,
+    close_source_tab_after_capture: Boolean(sourceRef),
   });
-  await chrome.storage.local.set({ deferred });
+
+  await jobsRepo.enqueueJob({
+    article_id: article.id,
+    processing_state: 'queued',
+  });
+
+  return {
+    article,
+    deduped: false,
+    requeued: true,
+    shouldCloseNow: false,
+    shouldCloseAfterCapture: Boolean(sourceRef),
+  };
 }
 
 /**
@@ -281,6 +387,511 @@ async function dismissSavedTab(id) {
     tab.dismissed = true;
     await chrome.storage.local.set({ deferred });
   }
+}
+
+function getHomepageController() {
+  return globalThis.TabOutHomepageController || null;
+}
+
+async function syncVisibleNowTabs(realTabs = getRealTabs()) {
+  const controller = getHomepageController();
+  const articlesRepo = globalThis.TabOutArticlesRepo;
+  const articles = articlesRepo ? await articlesRepo.listArticles() : [];
+
+  visibleNowTabs =
+    controller && typeof controller.filterVisibleNowTabs === 'function'
+      ? controller.filterVisibleNowTabs(realTabs, articles)
+      : realTabs.slice();
+
+  if (controller && typeof controller.setNowCount === 'function') {
+    controller.setNowCount(visibleNowTabs.length);
+  }
+
+  return visibleNowTabs;
+}
+
+function normalizeDashboardUrl(rawUrl) {
+  const candidate = String(rawUrl || '').trim();
+  if (!candidate) return '';
+
+  try {
+    const parsed = new URL(candidate);
+    parsed.hash = '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+}
+
+function getLandingPagePatterns() {
+  return [
+    { hostname: 'mail.google.com', test: (p, h) =>
+        !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
+    { hostname: 'x.com', pathExact: ['/home'] },
+    { hostname: 'www.linkedin.com', pathExact: ['/'] },
+    { hostname: 'github.com', pathExact: ['/'] },
+    { hostname: 'www.youtube.com', pathExact: ['/'] },
+    ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
+  ];
+}
+
+function getDomainGroupId(domain) {
+  return `domain-${String(domain || '').replace(/[^a-z0-9]/g, '-')}`;
+}
+
+function buildDomainGroupsFromTabs(currentTabs = []) {
+  const landingPagePatterns = getLandingPagePatterns();
+
+  function isLandingPage(url) {
+    try {
+      const parsed = new URL(url);
+      return landingPagePatterns.some((pattern) => {
+        const hostnameMatch = pattern.hostname
+          ? parsed.hostname === pattern.hostname
+          : pattern.hostnameEndsWith
+            ? parsed.hostname.endsWith(pattern.hostnameEndsWith)
+            : false;
+        if (!hostnameMatch) return false;
+        if (pattern.test) return pattern.test(parsed.pathname, url);
+        if (pattern.pathPrefix) return parsed.pathname.startsWith(pattern.pathPrefix);
+        if (pattern.pathExact) return pattern.pathExact.includes(parsed.pathname);
+        return parsed.pathname === '/';
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
+
+  function matchCustomGroup(url) {
+    try {
+      const parsed = new URL(url);
+      return customGroups.find((rule) => {
+        const hostMatch = rule.hostname
+          ? parsed.hostname === rule.hostname
+          : rule.hostnameEndsWith
+            ? parsed.hostname.endsWith(rule.hostnameEndsWith)
+            : false;
+        if (!hostMatch) return false;
+        if (rule.pathPrefix) return parsed.pathname.startsWith(rule.pathPrefix);
+        return true;
+      }) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const groupMap = {};
+  const landingTabs = [];
+
+  for (const tab of currentTabs) {
+    try {
+      if (isLandingPage(tab.url)) {
+        landingTabs.push(tab);
+        continue;
+      }
+
+      const customRule = matchCustomGroup(tab.url);
+      if (customRule) {
+        const key = customRule.groupKey;
+        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
+        groupMap[key].tabs.push(tab);
+        continue;
+      }
+
+      const hostname =
+        tab.url && tab.url.startsWith('file://')
+          ? 'local-files'
+          : new URL(tab.url).hostname;
+      if (!hostname) continue;
+
+      if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
+      groupMap[hostname].tabs.push(tab);
+    } catch {
+      // Skip malformed URLs
+    }
+  }
+
+  if (landingTabs.length > 0) {
+    groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
+  }
+
+  const landingHostnames = new Set(landingPagePatterns.map((pattern) => pattern.hostname).filter(Boolean));
+  const landingSuffixes = landingPagePatterns.map((pattern) => pattern.hostnameEndsWith).filter(Boolean);
+  function isLandingDomain(domain) {
+    if (landingHostnames.has(domain)) return true;
+    return landingSuffixes.some((suffix) => domain.endsWith(suffix));
+  }
+
+  domainGroups = Object.values(groupMap).sort((a, b) => {
+    const aIsLanding = a.domain === '__landing-pages__';
+    const bIsLanding = b.domain === '__landing-pages__';
+    if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
+
+    const aIsPriority = isLandingDomain(a.domain);
+    const bIsPriority = isLandingDomain(b.domain);
+    if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
+
+    return b.tabs.length - a.tabs.length;
+  });
+
+  return domainGroups;
+}
+
+function renderOpenTabsSectionHeader(groupCount, tabCount) {
+  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
+  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
+  if (openTabsSectionTitle) openTabsSectionTitle.textContent = t('section.openNow');
+  if (!openTabsSectionCount) return;
+
+  if (groupCount <= 0) {
+    openTabsSectionCount.textContent = t('counts.domains', { count: 0 });
+    return;
+  }
+
+  openTabsSectionCount.innerHTML =
+    `${t('counts.domains', { count: groupCount })} &nbsp;&middot;&nbsp; ` +
+    `<button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">` +
+    `${ICONS.close} ${t('actions.closeAllTabs', { count: tabCount })}` +
+    '</button>';
+}
+
+function renderOpenTabsSection(currentTabs = visibleNowTabs) {
+  const openTabsSection = document.getElementById('openTabsSection');
+  const openTabsMissionsEl = document.getElementById('openTabsMissions');
+  const nextGroups = buildDomainGroupsFromTabs(currentTabs);
+
+  if (nextGroups.length > 0 && openTabsSection && openTabsMissionsEl) {
+    renderOpenTabsSectionHeader(nextGroups.length, currentTabs.length);
+    openTabsMissionsEl.innerHTML = nextGroups.map((group) => renderDomainCard(group)).join('');
+    openTabsSection.style.display = 'block';
+  } else if (openTabsSection) {
+    openTabsSection.style.display = 'none';
+  }
+
+  return nextGroups;
+}
+
+async function closeTabById(tabId, options = {}) {
+  if (!tabId || typeof chrome === 'undefined' || !chrome.tabs) {
+    return { closed: false, skippedActive: false };
+  }
+
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (options.skipIfActive && tab && tab.active) {
+      return { closed: false, skippedActive: true, tab };
+    }
+    await chrome.tabs.remove(tabId);
+    return { closed: true, skippedActive: false, tab };
+  } catch {
+    return { closed: false, skippedActive: false };
+  }
+}
+
+async function closeTabByUrl(tabUrl, options = {}) {
+  if (!tabUrl || typeof chrome === 'undefined' || !chrome.tabs) {
+    return { closed: false, skippedActive: false };
+  }
+
+  const allTabs = await chrome.tabs.query({});
+  const match = allTabs.find((tab) => tab.url === tabUrl);
+  if (!match) {
+    return { closed: false, skippedActive: false };
+  }
+
+  return closeTabById(match.id, options);
+}
+
+function animateNowChipOut(chip, options = {}) {
+  if (!chip) {
+    if (typeof options.onDone === 'function') {
+      options.onDone();
+    }
+    return;
+  }
+
+  if (options.playEffects !== false) {
+    const rect = chip.getBoundingClientRect();
+    shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }
+
+  chip.style.transition = 'opacity 0.2s, transform 0.2s';
+  chip.style.opacity = '0';
+  chip.style.transform = 'scale(0.8)';
+  setTimeout(() => {
+    chip.remove();
+    if (typeof options.onDone === 'function') {
+      options.onDone();
+    }
+  }, 200);
+}
+
+async function reconcileVisibleNowRemoval(tabUrl, options = {}) {
+  const normalizedUrl = normalizeDashboardUrl(tabUrl);
+  if (!normalizedUrl) return;
+
+  const targetChips = options.chipEl
+    ? [options.chipEl]
+    : Array.from(document.querySelectorAll('.page-chip[data-action="focus-tab"]')).filter(
+        (chip) => normalizeDashboardUrl(chip.dataset.tabUrl) === normalizedUrl
+      );
+  const affectedCards = Array.from(
+    new Set(targetChips.map((chip) => chip.closest('.mission-card')).filter(Boolean))
+  );
+
+  if (options.closePhysicalTab) {
+    const closeResult = options.tabId
+      ? await closeTabById(options.tabId)
+      : await closeTabByUrl(tabUrl);
+    if (closeResult.closed) {
+      await fetchOpenTabs();
+    }
+  }
+
+  const nextVisibleTabs = await syncVisibleNowTabs();
+  const nextGroups = buildDomainGroupsFromTabs(nextVisibleTabs);
+  const nextGroupsById = new Map(nextGroups.map((group) => [getDomainGroupId(group.domain), group]));
+  const playEffects = options.playEffects !== false;
+
+  renderOpenTabsSectionHeader(nextGroups.length, nextVisibleTabs.length);
+
+  const openTabsSection = document.getElementById('openTabsSection');
+  if (openTabsSection) {
+    openTabsSection.style.display = 'block';
+  }
+
+  if (options.playSound) {
+    playCloseSound();
+  }
+
+  if (!affectedCards.length) {
+    if (nextGroups.length > 0) {
+      renderOpenTabsSection(nextVisibleTabs);
+    } else {
+      checkAndShowEmptyState();
+    }
+    return;
+  }
+
+  affectedCards.forEach((card) => {
+    if (!card) return;
+
+    const domainId = card.dataset.domainId;
+    const nextGroup = nextGroupsById.get(domainId) || null;
+    const urlStillVisible =
+      nextGroup &&
+      nextGroup.tabs.some((tab) => normalizeDashboardUrl(tab.url) === normalizedUrl);
+    const chipsForCard = targetChips.filter((chip) => chip.closest('.mission-card') === card);
+
+    if (!options.animate || !chipsForCard.length || urlStillVisible) {
+      if (nextGroup) {
+        card.outerHTML = renderDomainCard(nextGroup);
+      } else if (playEffects) {
+        animateCardOut(card, { playEffects });
+      } else {
+        card.remove();
+        checkAndShowEmptyState();
+      }
+      return;
+    }
+
+    let remaining = chipsForCard.length;
+    const finalizeCard = () => {
+      remaining -= 1;
+      if (remaining > 0) return;
+      const currentCard = document.querySelector(`.mission-card[data-domain-id="${domainId}"]`) || card;
+      if (!currentCard) return;
+      if (nextGroup) {
+        currentCard.outerHTML = renderDomainCard(nextGroup);
+      } else if (playEffects) {
+        animateCardOut(currentCard, { playEffects });
+      } else {
+        currentCard.remove();
+        checkAndShowEmptyState();
+      }
+    };
+
+    chipsForCard.forEach((chip) => {
+      animateNowChipOut(chip, {
+        playEffects,
+        onDone: finalizeCard,
+      });
+    });
+  });
+}
+
+function getI18n() {
+  return globalThis.TabOutI18n || null;
+}
+
+function t(key, params) {
+  const i18n = getI18n();
+  return i18n ? i18n.t(key, params) : key;
+}
+
+function getCurrentLocale() {
+  const i18n = getI18n();
+  return i18n && typeof i18n.getLocale === 'function' ? i18n.getLocale() : 'en-US';
+}
+
+async function applyLanguagePreference(preference) {
+  const i18n = getI18n();
+  if (!i18n || typeof i18n.setLanguagePreference !== 'function') return;
+  i18n.setLanguagePreference(
+    preference || 'auto',
+    (typeof navigator !== 'undefined' && navigator.language) || 'en-US'
+  );
+  i18n.apply(document);
+  document.documentElement.lang = i18n.getEffectiveLanguage();
+}
+
+async function initializeLanguagePreference() {
+  if (!globalThis.TabOutSettingsRepo) {
+    await applyLanguagePreference('auto');
+    return;
+  }
+
+  const settings = await globalThis.TabOutSettingsRepo.getAiSettings();
+  await applyLanguagePreference(settings.language_preference || 'auto');
+}
+
+function getSiteNameFromUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function normalizePinnedEntryUrl(rawUrl) {
+  const candidate = String(rawUrl || '').trim();
+  if (!candidate) return '';
+
+  try {
+    const parsed = new URL(candidate);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+}
+
+function getPinnedEntryDisplayTitle(entry) {
+  if (!entry) return '';
+  const title = String(entry.title || '').trim();
+  if (title) return title;
+  return getSiteNameFromUrl(entry.url) || entry.url || '';
+}
+
+function getRetryCheckpointState(processingState) {
+  if (processingState === 'capture_failed' || processingState === 'queued' || processingState === 'capturing') {
+    return 'queued';
+  }
+  if (processingState === 'analysis_failed' || processingState === 'captured' || processingState === 'analyzing') {
+    return 'captured';
+  }
+  if (processingState === 'assignment_failed' || processingState === 'analyzed' || processingState === 'assigning') {
+    return 'analyzed';
+  }
+  return processingState || 'queued';
+}
+
+function getProcessingTone(processingState) {
+  if (['capture_failed', 'analysis_failed', 'assignment_failed'].includes(processingState)) {
+    return 'warning';
+  }
+  if (['assigned'].includes(processingState)) {
+    return 'ready';
+  }
+  return 'pending';
+}
+
+function getProcessingLabel(processingState) {
+  switch (processingState) {
+    case 'queued':
+      return t('processing.queued');
+    case 'capturing':
+      return t('processing.capturing');
+    case 'captured':
+      return t('processing.captured');
+    case 'analyzing':
+      return t('processing.analyzing');
+    case 'analyzed':
+      return t('processing.analyzed');
+    case 'assigning':
+      return t('processing.assigning');
+    case 'assigned':
+      return t('processing.assigned');
+    case 'capture_failed':
+      return t('processing.capture_failed');
+    case 'analysis_failed':
+      return t('processing.analysis_failed');
+    case 'assignment_failed':
+      return t('processing.assignment_failed');
+    default:
+      return t('processing.pending');
+  }
+}
+
+function getRecommendedActionLabel(article) {
+  if (article.recommended_action) return article.recommended_action;
+  if (article.processing_state === 'assigned') return t('recommendedAction.reviewTopic');
+  if (['analysis_failed', 'assignment_failed'].includes(article.processing_state)) return t('recommendedAction.retryAfterFixingAi');
+  if (article.processing_state === 'capture_failed') return t('recommendedAction.retryCapture');
+  return t('recommendedAction.waitingForAnalysis');
+}
+
+function getRowStatusReason(article) {
+  if (article.processing_state === 'capture_failed') {
+    return t('reason.captureFailed');
+  }
+  if (article.processing_state === 'analysis_failed') {
+    return t('reason.analysisFailed');
+  }
+  if (article.processing_state === 'assignment_failed') {
+    return t('reason.assignmentFailed');
+  }
+  if (article.main_topic_label) {
+    return article.why_recommended || t('reason.readyInTopic');
+  }
+  if (article.processing_state === 'assigned') {
+    return t('reason.readyForTopicReview');
+  }
+  return t('reason.waitingForPipeline');
+}
+
+function isLikelyReadingTab(tab) {
+  try {
+    const parsed = new URL(tab.url);
+    const path = parsed.pathname.toLowerCase();
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'mail.google.com' ||
+      host === 'calendar.google.com' ||
+      host === 'github.com' && path === '/' ||
+      host === 'x.com' && path === '/home'
+    ) {
+      return false;
+    }
+
+    const pathSegments = path.split('/').filter(Boolean);
+    const articlePath = /(article|blog|post|news|guide|docs|read|story)/.test(path);
+    const longTitle = (tab.title || '').trim().length >= 42;
+    return articlePath || pathSegments.length >= 2 || longTitle;
+  } catch {
+    return false;
+  }
+}
+
+function isUnsupportedSaveUrl(url) {
+  return (
+    !url ||
+    url.startsWith('file://') ||
+    url.startsWith('https://chromewebstore.google.com') ||
+    url.startsWith('https://chrome.google.com/webstore')
+  );
 }
 
 
@@ -417,11 +1028,13 @@ function shootConfetti(x, y) {
  * Smoothly removes a mission card: fade + scale down, then confetti.
  * After the animation, checks if the grid is now empty.
  */
-function animateCardOut(card) {
+function animateCardOut(card, options = {}) {
   if (!card) return;
 
-  const rect = card.getBoundingClientRect();
-  shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  if (options.playEffects !== false) {
+    const rect = card.getBoundingClientRect();
+    shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }
 
   card.classList.add('closing');
   setTimeout(() => {
@@ -440,6 +1053,134 @@ function showToast(message) {
   document.getElementById('toastText').textContent = message;
   toast.classList.add('visible');
   setTimeout(() => toast.classList.remove('visible'), 2500);
+}
+
+function setPinnedMenuOpen(card, open) {
+  if (!card) return;
+  const trigger = card.querySelector('.pinned-menu-trigger');
+  const menu = card.querySelector('.pinned-card-menu');
+  card.classList.toggle('menu-open', open);
+  if (trigger) {
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  if (menu) {
+    menu.setAttribute('aria-hidden', open ? 'false' : 'true');
+  }
+}
+
+function closePinnedMenus(exceptPinnedId = null) {
+  document.querySelectorAll('.pinned-card.menu-open').forEach((card) => {
+    if (exceptPinnedId && card.dataset.pinnedId === exceptPinnedId) return;
+    setPinnedMenuOpen(card, false);
+  });
+}
+
+function togglePinnedMenu(pinnedId) {
+  if (!pinnedId) return;
+  const card = document.querySelector(`.pinned-card[data-pinned-id="${pinnedId}"]`);
+  if (!card) return;
+  const shouldOpen = !card.classList.contains('menu-open');
+  closePinnedMenus(shouldOpen ? pinnedId : null);
+  setPinnedMenuOpen(card, shouldOpen);
+}
+
+function getPinnedEditorElements() {
+  return {
+    backdrop: document.getElementById('pinnedEditorBackdrop'),
+    form: document.getElementById('pinnedEditorForm'),
+    nameInput: document.getElementById('pinnedEditorName'),
+    urlInput: document.getElementById('pinnedEditorUrl'),
+    error: document.getElementById('pinnedEditorError'),
+  };
+}
+
+function isPinnedEditorOpen() {
+  const { backdrop } = getPinnedEditorElements();
+  return !!backdrop && backdrop.getAttribute('aria-hidden') === 'false';
+}
+
+function setPinnedEditorError(message) {
+  const { error } = getPinnedEditorElements();
+  if (!error) return;
+  error.textContent = message || '';
+}
+
+function openPinnedEditor(entry, trigger) {
+  const { backdrop, nameInput, urlInput } = getPinnedEditorElements();
+  if (!backdrop || !nameInput || !urlInput || !entry) return;
+
+  closePinnedMenus();
+
+  pinnedEditorState = {
+    entry: { ...entry },
+    trigger: trigger || document.activeElement,
+  };
+
+  nameInput.value = entry.title || '';
+  urlInput.value = entry.url || '';
+  setPinnedEditorError('');
+  backdrop.setAttribute('aria-hidden', 'false');
+
+  window.setTimeout(() => {
+    nameInput.focus({ preventScroll: true });
+    nameInput.select();
+  }, 0);
+}
+
+function closePinnedEditor(options = {}) {
+  const { restoreFocus = true } = options;
+  const { backdrop, form, error } = getPinnedEditorElements();
+  const trigger = pinnedEditorState.trigger;
+
+  if (backdrop) {
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
+  if (form) {
+    form.reset();
+  }
+  if (error) {
+    error.textContent = '';
+  }
+
+  pinnedEditorState = {
+    entry: null,
+    trigger: null,
+  };
+
+  if (restoreFocus && trigger && typeof trigger.focus === 'function') {
+    trigger.focus({ preventScroll: true });
+  }
+}
+
+async function submitPinnedEditor() {
+  const pinnedRepo = globalThis.TabOutPinnedRepo;
+  const currentEntry = pinnedEditorState.entry;
+  const { nameInput, urlInput } = getPinnedEditorElements();
+  if (!pinnedRepo || !currentEntry || !nameInput || !urlInput) return;
+
+  const normalizedUrl = normalizePinnedEntryUrl(urlInput.value);
+  if (!normalizedUrl) {
+    setPinnedEditorError(t('pinned.editor.invalidUrl'));
+    urlInput.focus({ preventScroll: true });
+    return;
+  }
+
+  const nextTitle = nameInput.value.trim() || getSiteNameFromUrl(normalizedUrl) || normalizedUrl;
+  const currentNormalizedUrl = normalizePinnedEntryUrl(currentEntry.url);
+  const nextIcon = normalizedUrl === currentNormalizedUrl
+    ? (currentEntry.icon || '')
+    : derivePinnedEntryIconUrl(normalizedUrl);
+
+  const updatedEntry = await pinnedRepo.updatePinnedEntry(currentEntry.id, {
+    title: nextTitle,
+    url: normalizedUrl,
+    icon: nextIcon || null,
+  });
+  if (!updatedEntry) return;
+
+  closePinnedEditor();
+  await renderPinnedSurface();
+  showToast(t('toast.pinUpdated'));
 }
 
 /**
@@ -462,12 +1203,14 @@ function checkAndShowEmptyState() {
         </svg>
       </div>
       <div class="empty-title">Inbox zero, but for tabs.</div>
-      <div class="empty-subtitle">You're free.</div>
+      <div class="empty-subtitle">${t('emptyState.subtitle')}</div>
     </div>
   `;
 
+  const titleEl = missionsEl.querySelector('.empty-title');
+  if (titleEl) titleEl.textContent = t('emptyState.title');
   const countEl = document.getElementById('openTabsSectionCount');
-  if (countEl) countEl.textContent = '0 domains';
+  if (countEl) countEl.textContent = t('counts.domains', { count: 0 });
 }
 
 /**
@@ -484,11 +1227,11 @@ function timeAgo(dateStr) {
   const diffHours = Math.floor((now - then) / 3600000);
   const diffDays  = Math.floor((now - then) / 86400000);
 
-  if (diffMins < 1)   return 'just now';
-  if (diffMins < 60)  return diffMins + ' min ago';
-  if (diffHours < 24) return diffHours + ' hr' + (diffHours !== 1 ? 's' : '') + ' ago';
-  if (diffDays === 1) return 'yesterday';
-  return diffDays + ' days ago';
+  if (diffMins < 1) return t('timeAgo.justNow');
+  if (diffMins < 60) return t('timeAgo.minAgo', { count: diffMins });
+  if (diffHours < 24) return t('timeAgo.hourAgo', { count: diffHours });
+  if (diffDays === 1) return t('timeAgo.yesterday');
+  return t('timeAgo.dayAgo', { count: diffDays });
 }
 
 /**
@@ -496,16 +1239,16 @@ function timeAgo(dateStr) {
  */
 function getGreeting() {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (hour < 12) return t('greeting.morning');
+  if (hour < 17) return t('greeting.afternoon');
+  return t('greeting.evening');
 }
 
 /**
  * getDateDisplay() — "Friday, April 4, 2026"
  */
 function getDateDisplay() {
-  return new Date().toLocaleDateString('en-US', {
+  return new Date().toLocaleDateString(getCurrentLocale(), {
     weekday: 'long',
     year:    'numeric',
     month:   'long',
@@ -763,19 +1506,17 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const count    = urlCounts[tab.url] || 1;
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const safeUrl   = escapeAttribute(tab.url || '');
+    const safeTitle = escapeAttribute(label);
+    const faviconHtml = renderFaviconImage(getTabFaviconUrl(tab));
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconHtml}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${t('actions.saveForLater')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" data-tab-id="${tab.id || ''}" title="${t('actions.closeThisTab')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -785,8 +1526,260 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
   return `
     <div class="page-chips-overflow" style="display:none">${hiddenChips}</div>
     <div class="page-chip page-chip-overflow clickable" data-action="expand-chips">
-      <span class="chip-text">+${hiddenTabs.length} more</span>
+      <span class="chip-text">${t('counts.moreTabs', { count: hiddenTabs.length })}</span>
     </div>`;
+}
+
+function renderReadingInboxRow(article) {
+  const safeTitle = (article.title || article.url || '').replace(/"/g, '&quot;');
+  const safeUrl = (article.url || '').replace(/"/g, '&quot;');
+  const topicLabel = article.main_topic_label || t('reading.topicPending');
+  const recommendedAction = getRecommendedActionLabel(article);
+  const processingLabel = getProcessingLabel(article.processing_state);
+  const processingTone = getProcessingTone(article.processing_state);
+  const reason = getRowStatusReason(article);
+  const isRetryable = ['capture_failed', 'analysis_failed', 'assignment_failed'].includes(article.processing_state);
+  const isReadView = article.lifecycle_state === 'read';
+  const primaryAction = isReadView
+    ? `<button class="reading-item-action" type="button" data-action="archive-article" data-article-id="${article.id}">${t('actions.archive')}</button>`
+    : `<button class="reading-item-action" type="button" data-action="mark-article-read" data-article-id="${article.id}">${t('actions.markRead')}</button>`;
+  const retryAction = isRetryable
+    ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
+    : '';
+
+  return `
+    <article class="reading-item" data-action="select-reading-article" data-article-id="${article.id}">
+      <div class="reading-item-main">
+        <div class="reading-item-heading">
+          <button class="reading-item-title" type="button" data-action="open-article-source" data-article-url="${safeUrl}" title="${safeTitle}">${article.title || article.url}</button>
+          <span class="reading-item-processing ${processingTone}">${processingLabel}</span>
+        </div>
+        <div class="reading-item-meta">
+          <span>${article.site_name || getSiteNameFromUrl(article.url)}</span>
+          <span>${timeAgo(article.last_saved_at || article.saved_at)}</span>
+        </div>
+        <div class="reading-item-topic">${topicLabel}</div>
+        <div class="reading-item-reason">${recommendedAction} · ${reason}</div>
+      </div>
+      <div class="reading-item-actions">
+        ${primaryAction}
+        <button class="reading-item-action" type="button" data-action="delete-article" data-article-id="${article.id}">${t('actions.delete')}</button>
+        ${retryAction}
+      </div>
+      <div class="reading-item-delete-confirm" data-delete-confirm-for="${article.id}">
+        <span>${t('reading.deleteConfirm')}</span>
+        <button class="reading-item-action danger" type="button" data-action="confirm-delete-article" data-article-id="${article.id}">${t('actions.delete')}</button>
+        <button class="reading-item-action" type="button" data-action="cancel-delete-article" data-article-id="${article.id}">${t('actions.cancel')}</button>
+      </div>
+    </article>
+  `;
+}
+
+function deriveTopicSummary(topics, articles) {
+  if (!articles.length) {
+    return `
+      <p class="topic-panel-lead">Nothing to triage yet.</p>
+      <p class="topic-panel-copy">Save an article from Now and the inbox will start building a calm topic overview here.</p>
+    `;
+  }
+
+  const assigned = articles.filter((article) => article.main_topic_id && article.processing_state === 'assigned');
+  if (!assigned.length) {
+    return `
+      <p class="topic-panel-lead">Articles are saved, but topic guidance is still forming.</p>
+      <p class="topic-panel-copy">Capture and analysis can complete before topic assignment. Failed or unassigned items stay visible on the left so you never lose them.</p>
+    `;
+  }
+
+  const grouped = new Map();
+  assigned.forEach((article) => {
+    const key = article.main_topic_id || article.main_topic_label;
+    const bucket = grouped.get(key) || {
+      topic: topics.find((item) => item.id === article.main_topic_id) || null,
+      articles: [],
+    };
+    bucket.articles.push(article);
+    grouped.set(key, bucket);
+  });
+
+  const cards = Array.from(grouped.values())
+    .sort((left, right) => right.articles.length - left.articles.length)
+    .slice(0, 4)
+    .map(({ topic, articles: topicArticles }) => {
+      const label = topic?.title || topicArticles[0].main_topic_label || 'Untitled topic';
+      const lead = topic?.one_line_digest || topicArticles[0].summary_short || 'A lightweight topic cluster drawn from your saved articles.';
+      const firstArticle = topicArticles[0];
+      return `
+        <section class="topic-summary-card">
+          <div class="topic-summary-heading">
+            <h3>${label}</h3>
+            <span>${topicArticles.length} article${topicArticles.length !== 1 ? 's' : ''}</span>
+          </div>
+          <p>${lead}</p>
+          <div class="topic-summary-path">Start with ${firstArticle.title || firstArticle.url}</div>
+        </section>
+      `;
+    })
+    .join('');
+
+  return `
+    <p class="topic-panel-lead">Your backlog is starting to cluster into a few clear themes.</p>
+    <div class="topic-summary-list">${cards}</div>
+  `;
+}
+
+async function renderPinnedSurface() {
+  const controller = getHomepageController();
+  const pinnedRepo = globalThis.TabOutPinnedRepo;
+  if (!controller || !pinnedRepo) return;
+  const entries = await pinnedRepo.listPinnedEntries();
+  controller.renderPinned(entries);
+}
+
+async function renderReadingInboxSurface() {
+  const controller = getHomepageController();
+  const articlesRepo = globalThis.TabOutArticlesRepo;
+  const topicsRepo = globalThis.TabOutTopicsRepo;
+  if (!controller || !articlesRepo || !topicsRepo) return;
+
+  const activeCount = await articlesRepo.countActiveInboxItems();
+  controller.setReadingInboxCount(activeCount);
+
+  const lifecycleState = controller.getReadingView() === 'read' ? 'read' : 'active';
+  const articles = await articlesRepo.listArticlesByLifecycleState(lifecycleState, {
+    sort: 'last_saved_at_desc',
+  });
+  const topics = await topicsRepo.listTopics();
+  const selectedArticleId = controller.getSelectedArticleId();
+  const nextSelectedArticleId =
+    (selectedArticleId && articles.some((article) => article.id === selectedArticleId) && selectedArticleId) ||
+    (articles[0] ? articles[0].id : null);
+  if (nextSelectedArticleId !== selectedArticleId) {
+    controller.setSelectedArticleId(nextSelectedArticleId);
+    return;
+  }
+
+  controller.renderReadingInboxList(
+    articles.map(renderReadingInboxRow),
+    lifecycleState === 'active'
+      ? t('reading.emptyActive')
+      : t('reading.emptyRead')
+  );
+  document.querySelectorAll('.reading-item').forEach((row) => {
+    row.classList.toggle('selected', row.dataset.articleId === nextSelectedArticleId);
+  });
+  const viewModel = globalThis.TabOutTopicSummary.buildTopicSummaryViewModel({
+    articles,
+    topics,
+    selectedArticleId: nextSelectedArticleId,
+  });
+  controller.setTopicSummary(globalThis.TabOutDigestRenderer.renderTopicSummaryPanel(viewModel));
+  await renderDebugSurface();
+}
+
+async function renderInboxSurfaces() {
+  await Promise.all([renderPinnedSurface(), renderReadingInboxSurface()]);
+}
+
+async function kickBackgroundJobs() {
+  try {
+    await chrome.runtime.sendMessage({ type: 'tabout:jobs:kick' });
+  } catch (error) {
+    console.warn('[tab-out] Failed to kick jobs runner:', error);
+  }
+}
+
+function getAiSettingsDraft() {
+  return {
+    base_url: document.getElementById('settingsBaseUrl')?.value.trim() || '',
+    api_key: document.getElementById('settingsApiKey')?.value.trim() || '',
+    model_id: document.getElementById('settingsModelId')?.value.trim() || '',
+    language_preference:
+      document.getElementById('settingsLanguagePreference')?.value || 'auto',
+  };
+}
+
+function setSettingsStatus(text) {
+  const status = document.getElementById('settingsStatus');
+  if (status) {
+    status.textContent = text;
+  }
+}
+
+async function renderDebugSurface() {
+  const list = document.getElementById('debugList');
+  if (!list || !globalThis.TabOutArticlesRepo || !globalThis.TabOutJobsRepo || !globalThis.TabOutSettingsRepo) return;
+
+  const [articles, jobs, aiStatus] = await Promise.all([
+    globalThis.TabOutArticlesRepo.listArticles(),
+    globalThis.TabOutJobsRepo.listJobs(),
+    globalThis.TabOutSettingsRepo.getAiStatus(),
+  ]);
+
+  const rows = articles
+    .slice()
+    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+    .slice(0, 6)
+    .map((article) => {
+      const job = jobs.find((item) => item.article_id === article.id);
+      const errorText = article.last_error_message || job?.last_error_message || t('debug.noRecentError');
+      const hostText = aiStatus.host || t('debug.noAiHost');
+      const analyzedAt = article.last_analyzed_at
+        ? t('debug.analyzedAgo', { time: timeAgo(article.last_analyzed_at) })
+        : '';
+      const lifecycleLabel =
+        article.lifecycle_state === 'read' ? t('lifecycle.read') : t('lifecycle.active');
+      const retryAction = ['capture_failed', 'analysis_failed', 'assignment_failed'].includes(article.processing_state)
+        ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
+        : '';
+      return `
+        <div class="debug-item">
+          <h4>${article.title || article.url}</h4>
+          <p>${getProcessingLabel(article.processing_state)} · ${lifecycleLabel} · ${hostText}${analyzedAt}</p>
+          <p>${errorText}</p>
+          ${retryAction ? `<div class="debug-item-actions">${retryAction}</div>` : ''}
+        </div>
+      `;
+    })
+    .join('');
+
+  list.innerHTML =
+    rows ||
+    `
+      <div class="debug-item">
+        <h4>${t('debug.emptyTitle')}</h4>
+        <p>${t('debug.emptyBody')}</p>
+      </div>
+    `;
+}
+
+async function loadSettingsSurface() {
+  if (!globalThis.TabOutSettingsRepo) return;
+  const [settings, status] = await Promise.all([
+    globalThis.TabOutSettingsRepo.getAiSettings(),
+    globalThis.TabOutSettingsRepo.getAiStatus(),
+  ]);
+
+  const baseUrlInput = document.getElementById('settingsBaseUrl');
+  const apiKeyInput = document.getElementById('settingsApiKey');
+  const modelIdInput = document.getElementById('settingsModelId');
+  const languagePreferenceInput = document.getElementById('settingsLanguagePreference');
+  if (baseUrlInput) baseUrlInput.value = settings.base_url || '';
+  if (apiKeyInput) apiKeyInput.value = settings.api_key || '';
+  if (modelIdInput) modelIdInput.value = settings.model_id || '';
+  if (languagePreferenceInput) {
+    languagePreferenceInput.value = settings.language_preference || 'auto';
+  }
+
+  if (status.state === 'ready' || status.state === 'saved') {
+    setSettingsStatus(t('settings.status.ready', { host: status.host }));
+  } else if (status.state === 'failed') {
+    setSettingsStatus(t('settings.status.failed', { error: status.last_error }));
+  } else {
+    setSettingsStatus(t('settings.status.notConfigured'));
+  }
+
+  await renderDebugSurface();
 }
 
 
@@ -815,12 +1808,12 @@ function renderDomainCard(group) {
 
   const tabBadge = `<span class="open-tabs-badge">
     ${ICONS.tabs}
-    ${tabCount} tab${tabCount !== 1 ? 's' : ''} open
+    ${t('counts.tabsOpen', { count: tabCount })}
   </span>`;
 
   const dupeBadge = hasDupes
     ? `<span class="open-tabs-badge" style="color:var(--accent-amber);background:rgba(200,113,58,0.08);">
-        ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+        ${t('counts.duplicates', { count: totalExtras })}
       </span>`
     : '';
 
@@ -844,19 +1837,22 @@ function renderDomainCard(group) {
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const saveClass = isLikelyReadingTab(tab) ? ' chip-save-emphasis' : '';
+    const saveDisabled = isUnsupportedSaveUrl(tab.url);
+    const safeUrl   = escapeAttribute(tab.url || '');
+    const safeTitle = escapeAttribute(label);
+    const faviconHtml = renderFaviconImage(getTabFaviconUrl(tab));
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
+      ${faviconHtml}
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
-        <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
+        <button class="chip-action chip-pin" data-action="pin-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${t('actions.pinToShortcuts')}">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m15 5.25 3.75 3.75m-2.258-5.492 1.533 1.533a2.25 2.25 0 0 1 0 3.182l-7.343 7.343a4.5 4.5 0 0 1-1.897 1.13L5.25 18.75l1.049-3.535a4.5 4.5 0 0 1 1.13-1.897l7.343-7.343a2.25 2.25 0 0 1 3.182 0Z" /></svg>
+        </button>
+        <button class="chip-action chip-save${saveClass}" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${saveDisabled ? t('labels.captureUnavailable') : t('actions.saveForLater')}" ${saveDisabled ? 'disabled aria-disabled="true"' : ''}>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
         </button>
-        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" title="Close this tab">
+        <button class="chip-action chip-close" data-action="close-single-tab" data-tab-url="${safeUrl}" data-tab-id="${tab.id || ''}" title="${t('actions.closeThisTab')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -866,14 +1862,14 @@ function renderDomainCard(group) {
   let actionsHtml = `
     <button class="action-btn close-tabs" data-action="close-domain-tabs" data-domain-id="${stableId}">
       ${ICONS.close}
-      Close all ${tabCount} tab${tabCount !== 1 ? 's' : ''}
+      ${t('actions.closeAllTabs', { count: tabCount })}
     </button>`;
 
   if (hasDupes) {
     const dupeUrlsEncoded = dupeUrls.map(([url]) => encodeURIComponent(url)).join(',');
     actionsHtml += `
       <button class="action-btn" data-action="dedup-keep-one" data-dupe-urls="${dupeUrlsEncoded}">
-        Close ${totalExtras} duplicate${totalExtras !== 1 ? 's' : ''}
+        ${t('actions.closeDuplicates', { count: totalExtras })}
       </button>`;
   }
 
@@ -882,7 +1878,7 @@ function renderDomainCard(group) {
       <div class="status-bar"></div>
       <div class="mission-content">
         <div class="mission-top">
-          <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
+          <span class="mission-name">${isLanding ? t('labels.homepages') : (group.label || friendlyDomain(group.domain))}</span>
           ${tabBadge}
           ${dupeBadge}
         </div>
@@ -891,7 +1887,7 @@ function renderDomainCard(group) {
       </div>
       <div class="mission-meta">
         <div class="mission-page-count">${tabCount}</div>
-        <div class="mission-page-label">tabs</div>
+        <div class="mission-page-label">${t('labels.tabs')}</div>
       </div>
     </div>`;
 }
@@ -932,7 +1928,7 @@ async function renderDeferredColumn() {
 
     // Render active checklist items
     if (active.length > 0) {
-      countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
+      countEl.textContent = t('counts.items', { count: active.length });
       list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
       list.style.display = 'block';
       empty.style.display = 'none';
@@ -966,22 +1962,27 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
   const ago = timeAgo(item.savedAt);
+  const title = item.title || item.url;
+  const faviconHtml = renderFaviconImage(
+    getTabFaviconUrl(item),
+    '',
+    'width:14px;height:14px;vertical-align:-2px;margin-right:4px',
+  );
 
   return `
     <div class="deferred-item" data-deferred-id="${item.id}">
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
-        <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+        <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${escapeAttribute(title)}">
+          ${faviconHtml}${title}
         </a>
         <div class="deferred-meta">
           <span>${domain}</span>
           <span>${ago}</span>
         </div>
       </div>
-      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Dismiss">
+      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="${t('actions.dismiss')}">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>`;
@@ -1020,6 +2021,11 @@ function renderArchiveItem(item) {
  * 6. Renders the "Saved for Later" checklist
  */
 async function renderStaticDashboard() {
+  const homepageController = getHomepageController();
+  if (homepageController) {
+    homepageController.init();
+  }
+
   // --- Header ---
   const greetingEl = document.getElementById('greeting');
   const dateEl     = document.getElementById('dateDisplay');
@@ -1029,147 +2035,102 @@ async function renderStaticDashboard() {
   // --- Fetch tabs ---
   await fetchOpenTabs();
   const realTabs = getRealTabs();
-
-  // --- Group tabs by domain ---
-  // Landing pages (Gmail inbox, Twitter home, etc.) get their own special group
-  // so they can be closed together without affecting content tabs on the same domain.
-  const LANDING_PAGE_PATTERNS = [
-    { hostname: 'mail.google.com', test: (p, h) =>
-        !h.includes('#inbox/') && !h.includes('#sent/') && !h.includes('#search/') },
-    { hostname: 'x.com',               pathExact: ['/home'] },
-    { hostname: 'www.linkedin.com',    pathExact: ['/'] },
-    { hostname: 'github.com',          pathExact: ['/'] },
-    { hostname: 'www.youtube.com',     pathExact: ['/'] },
-    // Merge personal patterns from config.local.js (if it exists)
-    ...(typeof LOCAL_LANDING_PAGE_PATTERNS !== 'undefined' ? LOCAL_LANDING_PAGE_PATTERNS : []),
-  ];
-
-  function isLandingPage(url) {
-    try {
-      const parsed = new URL(url);
-      return LANDING_PAGE_PATTERNS.some(p => {
-        // Support both exact hostname and suffix matching (for wildcard subdomains)
-        const hostnameMatch = p.hostname
-          ? parsed.hostname === p.hostname
-          : p.hostnameEndsWith
-            ? parsed.hostname.endsWith(p.hostnameEndsWith)
-            : false;
-        if (!hostnameMatch) return false;
-        if (p.test)       return p.test(parsed.pathname, url);
-        if (p.pathPrefix) return parsed.pathname.startsWith(p.pathPrefix);
-        if (p.pathExact)  return p.pathExact.includes(parsed.pathname);
-        return parsed.pathname === '/';
-      });
-    } catch { return false; }
-  }
-
-  domainGroups = [];
-  const groupMap    = {};
-  const landingTabs = [];
-
-  // Custom group rules from config.local.js (if any)
-  const customGroups = typeof LOCAL_CUSTOM_GROUPS !== 'undefined' ? LOCAL_CUSTOM_GROUPS : [];
-
-  // Check if a URL matches a custom group rule; returns the rule or null
-  function matchCustomGroup(url) {
-    try {
-      const parsed = new URL(url);
-      return customGroups.find(r => {
-        const hostMatch = r.hostname
-          ? parsed.hostname === r.hostname
-          : r.hostnameEndsWith
-            ? parsed.hostname.endsWith(r.hostnameEndsWith)
-            : false;
-        if (!hostMatch) return false;
-        if (r.pathPrefix) return parsed.pathname.startsWith(r.pathPrefix);
-        return true; // hostname matched, no path filter
-      }) || null;
-    } catch { return null; }
-  }
-
-  for (const tab of realTabs) {
-    try {
-      if (isLandingPage(tab.url)) {
-        landingTabs.push(tab);
-        continue;
-      }
-
-      // Check custom group rules first (e.g. merge subdomains, split by path)
-      const customRule = matchCustomGroup(tab.url);
-      if (customRule) {
-        const key = customRule.groupKey;
-        if (!groupMap[key]) groupMap[key] = { domain: key, label: customRule.groupLabel, tabs: [] };
-        groupMap[key].tabs.push(tab);
-        continue;
-      }
-
-      let hostname;
-      if (tab.url && tab.url.startsWith('file://')) {
-        hostname = 'local-files';
-      } else {
-        hostname = new URL(tab.url).hostname;
-      }
-      if (!hostname) continue;
-
-      if (!groupMap[hostname]) groupMap[hostname] = { domain: hostname, tabs: [] };
-      groupMap[hostname].tabs.push(tab);
-    } catch {
-      // Skip malformed URLs
-    }
-  }
-
-  if (landingTabs.length > 0) {
-    groupMap['__landing-pages__'] = { domain: '__landing-pages__', tabs: landingTabs };
-  }
-
-  // Sort: landing pages first, then domains from landing page sites, then by tab count
-  // Collect exact hostnames and suffix patterns for priority sorting
-  const landingHostnames = new Set(LANDING_PAGE_PATTERNS.map(p => p.hostname).filter(Boolean));
-  const landingSuffixes = LANDING_PAGE_PATTERNS.map(p => p.hostnameEndsWith).filter(Boolean);
-  function isLandingDomain(domain) {
-    if (landingHostnames.has(domain)) return true;
-    return landingSuffixes.some(s => domain.endsWith(s));
-  }
-  domainGroups = Object.values(groupMap).sort((a, b) => {
-    const aIsLanding = a.domain === '__landing-pages__';
-    const bIsLanding = b.domain === '__landing-pages__';
-    if (aIsLanding !== bIsLanding) return aIsLanding ? -1 : 1;
-
-    const aIsPriority = isLandingDomain(a.domain);
-    const bIsPriority = isLandingDomain(b.domain);
-    if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
-
-    return b.tabs.length - a.tabs.length;
-  });
-
-  // --- Render domain cards ---
-  const openTabsSection      = document.getElementById('openTabsSection');
-  const openTabsMissionsEl   = document.getElementById('openTabsMissions');
-  const openTabsSectionCount = document.getElementById('openTabsSectionCount');
-  const openTabsSectionTitle = document.getElementById('openTabsSectionTitle');
-
-  if (domainGroups.length > 0 && openTabsSection) {
-    if (openTabsSectionTitle) openTabsSectionTitle.textContent = 'Open tabs';
-    openTabsSectionCount.innerHTML = `${domainGroups.length} domain${domainGroups.length !== 1 ? 's' : ''} &nbsp;&middot;&nbsp; <button class="action-btn close-tabs" data-action="close-all-open-tabs" style="font-size:11px;padding:3px 10px;">${ICONS.close} Close all ${realTabs.length} tabs</button>`;
-    openTabsMissionsEl.innerHTML = domainGroups.map(g => renderDomainCard(g)).join('');
-    openTabsSection.style.display = 'block';
-  } else if (openTabsSection) {
-    openTabsSection.style.display = 'none';
-  }
-
-  // --- Footer stats ---
-  const statTabs = document.getElementById('statTabs');
-  if (statTabs) statTabs.textContent = openTabs.length;
+  const currentTabs = await syncVisibleNowTabs(realTabs);
+  renderOpenTabsSection(currentTabs);
 
   // --- Check for duplicate Tab Out tabs ---
   checkTabOutDupes();
 
-  // --- Render "Saved for Later" column ---
-  await renderDeferredColumn();
+  // --- Render pinned + reading inbox surfaces ---
+  await Promise.all([renderInboxSurfaces(), loadSettingsSurface()]);
 }
 
 async function renderDashboard() {
+  await initializeLanguagePreference();
   await renderStaticDashboard();
+}
+
+let localConfigLoadPromise = null;
+
+async function hasPackagedFile(path) {
+  if (
+    typeof chrome === 'undefined' ||
+    !chrome.runtime ||
+    typeof chrome.runtime.getPackageDirectoryEntry !== 'function'
+  ) {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    chrome.runtime.getPackageDirectoryEntry((root) => {
+      if (!root) {
+        resolve(false);
+        return;
+      }
+
+      root.getFile(
+        path,
+        { create: false },
+        () => resolve(true),
+        () => resolve(false)
+      );
+    });
+  });
+}
+
+async function loadOptionalLocalConfig() {
+  if (localConfigLoadPromise) {
+    return localConfigLoadPromise;
+  }
+
+  localConfigLoadPromise = (async () => {
+    const configUrl =
+      typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL
+        ? chrome.runtime.getURL('config.local.js')
+        : 'config.local.js';
+
+    const exists = await hasPackagedFile('config.local.js');
+    if (!exists) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = configUrl;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', resolve, { once: true });
+      document.head.appendChild(script);
+    });
+  })();
+
+  return localConfigLoadPromise;
+}
+
+window.addEventListener('tabout:reading-view-changed', async () => {
+  try {
+    await renderReadingInboxSurface();
+  } catch (error) {
+    console.warn('[tab-out] Failed to rerender reading inbox after view change:', error);
+  }
+});
+
+window.addEventListener('tabout:selected-article-changed', async () => {
+  try {
+    await renderReadingInboxSurface();
+  } catch (error) {
+    console.warn('[tab-out] Failed to rerender reading inbox after article selection:', error);
+  }
+});
+
+if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || message.type !== 'tabout:data-changed') return;
+    renderInboxSurfaces()
+      .then(() => renderDebugSurface())
+      .catch((error) => {
+        console.warn('[tab-out] Failed to refresh after background update:', error);
+      });
+  });
 }
 
 
@@ -1182,6 +2143,18 @@ async function renderDashboard() {
    ---------------------------------------------------------------- */
 
 document.addEventListener('click', async (e) => {
+  const pinnedEditorBackdrop = document.getElementById('pinnedEditorBackdrop');
+  if (pinnedEditorBackdrop && e.target === pinnedEditorBackdrop) {
+    closePinnedEditor();
+    return;
+  }
+
+  const pinnedMenuTrigger = e.target.closest('.pinned-menu-trigger');
+  const pinnedMenu = e.target.closest('.pinned-card-menu');
+  if (!pinnedMenuTrigger && !pinnedMenu) {
+    closePinnedMenus();
+  }
+
   // Walk up the DOM to find the nearest element with data-action
   const actionEl = e.target.closest('[data-action]');
   if (!actionEl) return;
@@ -1198,7 +2171,18 @@ document.addEventListener('click', async (e) => {
       banner.style.opacity = '0';
       setTimeout(() => { banner.style.display = 'none'; banner.style.opacity = '1'; }, 400);
     }
-    showToast('Closed extra Tab Out tabs');
+    showToast(t('toast.closedExtraTabOutTabs'));
+    return;
+  }
+
+  if (action === 'close-pinned-editor') {
+    closePinnedEditor();
+    return;
+  }
+
+  if (action === 'toggle-pinned-menu') {
+    e.stopPropagation();
+    togglePinnedMenu(actionEl.dataset.pinnedId);
     return;
   }
 
@@ -1221,82 +2205,255 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  if (action === 'select-reading-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId) return;
+    const controller = getHomepageController();
+    if (!controller) return;
+    controller.setSelectedArticleId(articleId);
+    return;
+  }
+
+  if (action === 'open-article-source') {
+    e.stopPropagation();
+    const articleUrl = actionEl.dataset.articleUrl;
+    if (articleUrl) {
+      await chrome.tabs.create({ url: articleUrl, active: true });
+    }
+    return;
+  }
+
+  if (action === 'pin-single-tab') {
+    e.stopPropagation();
+    const tabUrl = actionEl.dataset.tabUrl;
+    const tabTitle = actionEl.dataset.tabTitle || tabUrl;
+    const tabId = actionEl.dataset.tabId ? Number(actionEl.dataset.tabId) : undefined;
+    const chip = actionEl.closest('.page-chip');
+    if (!tabUrl || !globalThis.TabOutPinnedRepo) return;
+
+    const entries = await globalThis.TabOutPinnedRepo.listPinnedEntries();
+    const existing = entries.find((entry) => entry.url === tabUrl);
+    if (existing) {
+      await reconcileVisibleNowRemoval(tabUrl, {
+        chipEl: chip,
+        tabId,
+        closePhysicalTab: true,
+        animate: true,
+        playEffects: true,
+        playSound: true,
+      });
+      showToast(t('toast.alreadyPinned'));
+      return;
+    }
+
+    const matchedTab = openTabs.find((tab) => tab.url === tabUrl);
+
+    await globalThis.TabOutPinnedRepo.createPinnedEntry({
+      title: tabTitle,
+      url: tabUrl,
+      icon: getTabFaviconUrl(matchedTab) || null,
+    });
+    await renderPinnedSurface();
+    await reconcileVisibleNowRemoval(tabUrl, {
+      chipEl: chip,
+      tabId: tabId || (matchedTab && matchedTab.id),
+      closePhysicalTab: true,
+      animate: true,
+      playEffects: true,
+      playSound: true,
+    });
+    showToast(t('toast.pinnedToNow'));
+    return;
+  }
+
+  if (action === 'save-ai-settings') {
+    if (!globalThis.TabOutSettingsRepo) return;
+    const draft = getAiSettingsDraft();
+    await globalThis.TabOutSettingsRepo.saveAiSettings(draft);
+    await applyLanguagePreference(draft.language_preference);
+    await globalThis.TabOutSettingsRepo.saveAiStatus({
+      state: draft.base_url && draft.api_key && draft.model_id ? 'saved' : 'not_configured',
+      host: getSiteNameFromUrl(draft.base_url),
+      last_error: null,
+    });
+    await renderDashboard();
+    showToast(t('toast.settingsSaved'));
+    return;
+  }
+
+  if (action === 'test-ai-settings') {
+    try {
+      setSettingsStatus(t('settings.status.testing'));
+      const result = await chrome.runtime.sendMessage({ type: 'tabout:ai:test-connection' });
+      if (!result || !result.ok) {
+        throw new Error(result && result.error ? result.error : 'Connection test failed');
+      }
+      await loadSettingsSurface();
+      showToast(t('toast.aiConnectionReady'));
+    } catch (error) {
+      setSettingsStatus(t('settings.status.failed', { error: error.message }));
+      showToast(t('toast.aiConnectionFailed'));
+    }
+    return;
+  }
+
   // ---- Close a single tab ----
   if (action === 'close-single-tab') {
     e.stopPropagation(); // don't trigger parent chip's focus-tab
     const tabUrl = actionEl.dataset.tabUrl;
+    const tabId = actionEl.dataset.tabId ? Number(actionEl.dataset.tabId) : undefined;
+    const chip = actionEl.closest('.page-chip');
     if (!tabUrl) return;
 
-    // Close the tab in Chrome directly
-    const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
-    await fetchOpenTabs();
+    await reconcileVisibleNowRemoval(tabUrl, {
+      chipEl: chip,
+      tabId,
+      closePhysicalTab: true,
+      animate: true,
+      playEffects: true,
+      playSound: true,
+    });
 
-    playCloseSound();
-
-    // Animate the chip row out
-    const chip = actionEl.closest('.page-chip');
-    if (chip) {
-      const rect = chip.getBoundingClientRect();
-      shootConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      chip.style.transition = 'opacity 0.2s, transform 0.2s';
-      chip.style.opacity    = '0';
-      chip.style.transform  = 'scale(0.8)';
-      setTimeout(() => {
-        chip.remove();
-        // If the card now has no tabs, remove it too
-        const parentCard = document.querySelector('.mission-card:has(.mission-pages:empty)');
-        if (parentCard) animateCardOut(parentCard);
-        document.querySelectorAll('.mission-card').forEach(c => {
-          if (c.querySelectorAll('.page-chip[data-action="focus-tab"]').length === 0) {
-            animateCardOut(c);
-          }
-        });
-      }, 200);
-    }
-
-    // Update footer
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
-
-    showToast('Tab closed');
+    showToast(t('toast.tabClosed'));
     return;
   }
 
-  // ---- Save a single tab for later (then close it) ----
+  // ---- Save a single tab for later ----
   if (action === 'defer-single-tab') {
     e.stopPropagation();
     const tabUrl   = actionEl.dataset.tabUrl;
     const tabTitle = actionEl.dataset.tabTitle || tabUrl;
+    const tabId    = actionEl.dataset.tabId ? Number(actionEl.dataset.tabId) : undefined;
+    const chip = actionEl.closest('.page-chip');
     if (!tabUrl) return;
 
-    // Save to chrome.storage.local
     try {
-      await saveTabForLater({ url: tabUrl, title: tabTitle });
+      const result = await saveTabForLater({ id: tabId, url: tabUrl, title: tabTitle });
+      await reconcileVisibleNowRemoval(tabUrl, {
+        chipEl: chip,
+        tabId,
+        closePhysicalTab: Boolean(result.shouldCloseNow),
+        animate: true,
+        playEffects: true,
+        playSound: true,
+      });
+      await Promise.all([kickBackgroundJobs(), renderReadingInboxSurface()]);
+      if (result.deduped) {
+        showToast(result.requeued ? t('toast.alreadySavedRequeued') : t('toast.alreadySaved'));
+      } else {
+        showToast(t('toast.savedToReadingInbox'));
+      }
     } catch (err) {
       console.error('[tab-out] Failed to save tab:', err);
-      showToast('Failed to save tab');
-      return;
+      showToast(t('toast.failedToSaveTab'));
+    }
+    return;
+  }
+
+  if (action === 'mark-article-read') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo) return;
+    await globalThis.TabOutArticlesRepo.markArticleRead(articleId);
+    await renderReadingInboxSurface();
+    showToast(t('toast.markedRead'));
+    return;
+  }
+
+  if (action === 'archive-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo) return;
+    await globalThis.TabOutArticlesRepo.markArticleArchived(articleId);
+    await renderReadingInboxSurface();
+    showToast(t('toast.archived'));
+    return;
+  }
+
+  if (action === 'delete-article') {
+    const articleId = actionEl.dataset.articleId;
+    const row = actionEl.closest('.reading-item');
+    if (!articleId || !row) return;
+    row.classList.add('confirming-delete');
+    return;
+  }
+
+  if (action === 'cancel-delete-article') {
+    const row = actionEl.closest('.reading-item');
+    if (row) {
+      row.classList.remove('confirming-delete');
+    }
+    return;
+  }
+
+  if (action === 'confirm-delete-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo) return;
+
+    const article = await globalThis.TabOutArticlesRepo.getArticleById(articleId);
+    if (!article) return;
+
+    const relatedJob = globalThis.TabOutJobsRepo
+      ? await globalThis.TabOutJobsRepo.getJobByArticleId(articleId)
+      : null;
+    if (relatedJob && globalThis.TabOutJobsRepo) {
+      await globalThis.TabOutJobsRepo.deleteJob(relatedJob.id);
     }
 
-    // Close the tab in Chrome
-    const allTabs = await chrome.tabs.query({});
-    const match   = allTabs.find(t => t.url === tabUrl);
-    if (match) await chrome.tabs.remove(match.id);
-    await fetchOpenTabs();
+    await globalThis.TabOutArticlesRepo.deleteArticlePermanently(articleId);
 
-    // Animate chip out
-    const chip = actionEl.closest('.page-chip');
-    if (chip) {
-      chip.style.transition = 'opacity 0.2s, transform 0.2s';
-      chip.style.opacity    = '0';
-      chip.style.transform  = 'scale(0.8)';
-      setTimeout(() => chip.remove(), 200);
+    if (article.main_topic_id && globalThis.TabOutTopicsRepo && globalThis.TabOutArticlesRepo) {
+      const topicArticles = await globalThis.TabOutArticlesRepo.listArticles();
+      const stillExists = topicArticles.some((item) => item.main_topic_id === article.main_topic_id && item.id !== articleId);
+      if (!stillExists) {
+        await globalThis.TabOutTopicsRepo.deleteTopic(article.main_topic_id);
+      }
     }
 
-    showToast('Saved for later');
-    await renderDeferredColumn();
+    await renderReadingInboxSurface();
+    showToast(t('toast.deleted'));
+    return;
+  }
+
+  if (action === 'retry-article') {
+    const articleId = actionEl.dataset.articleId;
+    if (!articleId || !globalThis.TabOutArticlesRepo || !globalThis.TabOutJobsRepo) return;
+    const article = await globalThis.TabOutArticlesRepo.getArticleById(articleId);
+    if (!article) return;
+    const checkpointState = getRetryCheckpointState(article.processing_state);
+    await globalThis.TabOutArticlesRepo.updateArticleProcessingState(articleId, checkpointState);
+    await globalThis.TabOutJobsRepo.enqueueJob({
+      article_id: articleId,
+      processing_state: checkpointState,
+    });
+    await kickBackgroundJobs();
+    await renderReadingInboxSurface();
+    showToast(t('toast.queuedForRetry'));
+    return;
+  }
+
+  if (action === 'edit-pinned-entry') {
+    closePinnedMenus();
+    const pinnedId = actionEl.dataset.pinnedId;
+    if (!pinnedId || !globalThis.TabOutPinnedRepo) return;
+    const entries = await globalThis.TabOutPinnedRepo.listPinnedEntries();
+    const entry = entries.find((item) => item.id === pinnedId);
+    if (!entry) return;
+    openPinnedEditor(
+      {
+        ...entry,
+        title: entry.title || getPinnedEntryDisplayTitle(entry),
+      },
+      actionEl
+    );
+    return;
+  }
+
+  if (action === 'remove-pinned-entry') {
+    closePinnedMenus();
+    const pinnedId = actionEl.dataset.pinnedId;
+    if (!pinnedId || !globalThis.TabOutPinnedRepo) return;
+    await globalThis.TabOutPinnedRepo.removePinnedEntry(pinnedId);
+    await renderPinnedSurface();
+    showToast(t('toast.pinRemoved'));
     return;
   }
 
@@ -1368,11 +2525,10 @@ document.addEventListener('click', async (e) => {
     const idx = domainGroups.indexOf(group);
     if (idx !== -1) domainGroups.splice(idx, 1);
 
-    const groupLabel = group.domain === '__landing-pages__' ? 'Homepages' : (group.label || friendlyDomain(group.domain));
-    showToast(`Closed ${urls.length} tab${urls.length !== 1 ? 's' : ''} from ${groupLabel}`);
+    const groupLabel = group.domain === '__landing-pages__' ? t('labels.homepages') : (group.label || friendlyDomain(group.domain));
+    showToast(t('toast.closedTabsFromGroup', { count: urls.length, group: groupLabel }));
 
-    const statTabs = document.getElementById('statTabs');
-    if (statTabs) statTabs.textContent = openTabs.length;
+    await syncVisibleNowTabs();
     return;
   }
 
@@ -1408,16 +2564,16 @@ document.addEventListener('click', async (e) => {
       card.classList.add('has-neutral-bar');
     }
 
-    showToast('Closed duplicates, kept one copy each');
+    showToast(t('toast.closedDuplicates'));
     return;
   }
 
   // ---- Close ALL open tabs ----
   if (action === 'close-all-open-tabs') {
-    const allUrls = openTabs
-      .filter(t => t.url && !t.url.startsWith('chrome') && !t.url.startsWith('about:'))
-      .map(t => t.url);
+    const allUrls = visibleNowTabs.map((tab) => tab.url).filter(Boolean);
+    if (allUrls.length === 0) return;
     await closeTabsByUrls(allUrls);
+    await syncVisibleNowTabs();
     playCloseSound();
 
     document.querySelectorAll('#openTabsMissions .mission-card').forEach(c => {
@@ -1428,7 +2584,7 @@ document.addEventListener('click', async (e) => {
       animateCardOut(c);
     });
 
-    showToast('All tabs closed. Fresh start.');
+    showToast(t('toast.allTabsClosed'));
     return;
   }
 });
@@ -1443,6 +2599,26 @@ document.addEventListener('click', (e) => {
   if (body) {
     body.style.display = body.style.display === 'none' ? 'block' : 'none';
   }
+});
+
+document.addEventListener('submit', async (event) => {
+  if (event.target.id !== 'pinnedEditorForm') return;
+  event.preventDefault();
+  await submitPinnedEditor();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (isPinnedEditorOpen()) {
+    closePinnedEditor();
+    return;
+  }
+  closePinnedMenus();
+});
+
+document.addEventListener('input', (event) => {
+  if (event.target.id !== 'pinnedEditorName' && event.target.id !== 'pinnedEditorUrl') return;
+  setPinnedEditorError('');
 });
 
 // ---- Archive search — filter archived items as user types ----
@@ -1469,7 +2645,7 @@ document.addEventListener('input', async (e) => {
     );
 
     archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || '<div style="font-size:12px;color:var(--muted);padding:8px 0">No results</div>';
+      || `<div style="font-size:12px;color:var(--muted);padding:8px 0">${t('labels.noResults')}</div>`;
   } catch (err) {
     console.warn('[tab-out] Archive search failed:', err);
   }
@@ -1479,4 +2655,12 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-renderDashboard();
+loadOptionalLocalConfig()
+  .catch((error) => {
+    console.warn('[tab-out] Optional local config failed to load:', error);
+  })
+  .finally(() => {
+    renderDashboard().catch((error) => {
+      console.error('[tab-out] Failed to initialize dashboard:', error);
+    });
+  });

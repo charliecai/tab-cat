@@ -1,33 +1,23 @@
-/**
- * background.js — Service Worker for Badge Updates
- *
- * Chrome's "always-on" background script for Tab Out.
- * Its only job: keep the toolbar badge showing the current open tab count.
- *
- * Since we no longer have a server, we query chrome.tabs directly.
- * The badge counts real web tabs (skipping chrome:// and extension pages).
- *
- * Color coding gives a quick at-a-glance health signal:
- *   Green  (#3d7a4a) → 1–10 tabs  (focused, manageable)
- *   Amber  (#b8892e) → 11–20 tabs (getting busy)
- *   Red    (#b35a5a) → 21+ tabs   (time to cull!)
- */
+importScripts(
+  'lib/schema.js',
+  'lib/db.js',
+  'lib/settings-repo.js',
+  'lib/i18n.js',
+  'lib/articles-repo.js',
+  'lib/topics-repo.js',
+  'lib/jobs-repo.js',
+  'lib/ai-client.js',
+  'lib/article-analysis.js',
+  'lib/topic-engine.js',
+  'lib/capture.js',
+  'lib/jobs-runner.js'
+);
 
-// ─── Badge updater ────────────────────────────────────────────────────────────
-
-/**
- * updateBadge()
- *
- * Counts open real-web tabs and updates the extension's toolbar badge.
- * "Real" tabs = not chrome://, not extension pages, not about:blank.
- */
 async function updateBadge() {
   try {
     const tabs = await chrome.tabs.query({});
-
-    // Only count actual web pages — skip browser internals and extension pages
-    const count = tabs.filter(t => {
-      const url = t.url || '';
+    const count = tabs.filter((tab) => {
+      const url = tab.url || '';
       return (
         !url.startsWith('chrome://') &&
         !url.startsWith('chrome-extension://') &&
@@ -37,57 +27,104 @@ async function updateBadge() {
       );
     }).length;
 
-    // Don't show "0" — an empty badge is cleaner
     await chrome.action.setBadgeText({ text: count > 0 ? String(count) : '' });
+    if (!count) return;
 
-    if (count === 0) return;
-
-    // Pick badge color based on workload level
-    let color;
-    if (count <= 10) {
-      color = '#3d7a4a'; // Green — you're in control
-    } else if (count <= 20) {
-      color = '#b8892e'; // Amber — things are piling up
-    } else {
-      color = '#b35a5a'; // Red — time to focus and close some tabs
+    let color = '#3d7a4a';
+    if (count > 20) {
+      color = '#b35a5a';
+    } else if (count > 10) {
+      color = '#b8892e';
     }
-
     await chrome.action.setBadgeBackgroundColor({ color });
-
   } catch {
-    // If something goes wrong, clear the badge rather than show stale data
     chrome.action.setBadgeText({ text: '' });
   }
 }
 
-// ─── Event listeners ──────────────────────────────────────────────────────────
+async function initializeWorker() {
+  try {
+    await globalThis.TabOutDb.openTabOutDb();
+    await globalThis.TabOutJobsRunner.rollbackStuckJobs();
+    await globalThis.TabOutJobsRunner.kick();
+  } catch (error) {
+    console.warn('[tab-out] background init failed:', error);
+  }
+}
 
-// Update badge when the extension is first installed
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!message || !message.type) return undefined;
+
+  if (message.type === 'tabout:jobs:kick') {
+    initializeWorker()
+      .then(async () => {
+        await globalThis.TabOutJobsRunner.kick();
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error.message });
+      });
+    return true;
+  }
+
+  if (message.type === 'tabout:ai:test-connection') {
+    (async () => {
+      try {
+        const settings = await globalThis.TabOutSettingsRepo.getAiSettings();
+        const validation = globalThis.TabOutAiClient.validateAiSettings(settings);
+        if (!validation.isValid) {
+          await globalThis.TabOutSettingsRepo.saveAiStatus({
+            state: 'failed',
+            host: validation.host,
+            last_error: validation.errors.join(', '),
+          });
+          sendResponse({ ok: false, error: validation.errors.join(', ') });
+          return;
+        }
+
+        await globalThis.TabOutAiClient.testConnection(settings);
+        await globalThis.TabOutSettingsRepo.saveAiStatus({
+          state: 'ready',
+          host: validation.host,
+          last_error: null,
+        });
+        sendResponse({ ok: true, host: validation.host });
+      } catch (error) {
+        await globalThis.TabOutSettingsRepo.saveAiStatus({
+          state: 'failed',
+          host: null,
+          last_error: error.message,
+        });
+        sendResponse({ ok: false, error: error.message });
+      }
+    })();
+    return true;
+  }
+
+  return undefined;
+});
+
 chrome.runtime.onInstalled.addListener(() => {
   updateBadge();
+  initializeWorker();
 });
 
-// Update badge when Chrome starts up
 chrome.runtime.onStartup.addListener(() => {
   updateBadge();
+  initializeWorker();
 });
 
-// Update badge whenever a tab is opened
 chrome.tabs.onCreated.addListener(() => {
   updateBadge();
 });
 
-// Update badge whenever a tab is closed
 chrome.tabs.onRemoved.addListener(() => {
   updateBadge();
 });
 
-// Update badge when a tab's URL changes (e.g. navigating to/from chrome://)
 chrome.tabs.onUpdated.addListener(() => {
   updateBadge();
 });
 
-// ─── Initial run ─────────────────────────────────────────────────────────────
-
-// Run once immediately when the service worker first loads
 updateBadge();
+initializeWorker();
