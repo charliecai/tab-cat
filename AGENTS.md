@@ -94,3 +94,79 @@ Once the extension is loaded:
 - Saved tabs are stored in `chrome.storage.local` (persists across sessions).
 - 100% local. No data is sent to any external service.
 - To update: `cd tab-out && git pull`, then reload the extension in `chrome://extensions`.
+
+---
+
+## Browser QA For Agents
+
+When you need to QA Tab Out through a browser, use a real extension runtime. Do **not** rely on the default DevTools-managed Chrome session if it was launched with `--disable-extensions`; in that environment, `Load unpacked` can show a toast while the extension never actually installs.
+
+### What worked reliably
+
+Use a **headed** Playwright Chromium persistent context and load the extension explicitly:
+
+```bash
+uv run --with playwright python - <<'PY'
+import tempfile
+from playwright.sync_api import sync_playwright
+
+EXT = "/Users/charliec/Projects/my-works/tab-out/extension"
+user_data_dir = tempfile.mkdtemp(prefix="tabout-qa-")
+
+with sync_playwright() as p:
+    context = p.chromium.launch_persistent_context(
+        user_data_dir,
+        headless=False,
+        args=[
+            f"--disable-extensions-except={EXT}",
+            f"--load-extension={EXT}",
+        ],
+        viewport={"width": 1440, "height": 1024},
+    )
+    boot = context.new_page()
+    boot.goto("chrome://extensions", wait_until="load")
+    boot.wait_for_timeout(2000)
+    ext_id = context.service_workers[0].url.split("/")[2]
+    page = context.new_page()
+    page.goto(f"chrome-extension://{ext_id}/index.html", wait_until="domcontentloaded")
+    page.wait_for_timeout(2000)
+    print("Extension ready:", ext_id)
+    input("Press Enter to close...")
+    context.close()
+PY
+```
+
+### Important runtime notes
+
+- Use **headed** Chromium. The extension runtime was not stable enough in headless mode.
+- Open `chrome://extensions` first. That consistently caused the extension service worker to appear.
+- Derive the extension id from `context.service_workers[0].url` instead of guessing it.
+- Open the app with `chrome-extension://<extension-id>/index.html` rather than `chrome://newtab` during automation.
+
+### Recommended smoke flow
+
+After the extension page is open:
+
+1. Seed a few real tabs such as `example.com`, `iana.org`, and `news.ycombinator.com`.
+2. Verify `Now` renders grouped tabs.
+3. Click one `Save for later`.
+4. Open `Reading inbox`.
+5. Verify the saved article appears and the right panel shows the fallback topic summary when AI is not configured.
+6. Click `Retry`.
+7. Click `Mark read`.
+8. Switch to `Read` and verify the item moved there.
+9. Open `Settings` and confirm the debug surface shows the article pipeline state.
+
+### How to capture QA evidence
+
+- Attach `console` listeners to every page in the context.
+- Attach `requestfailed` and `response` listeners to catch network failures.
+- Take screenshots at least for:
+  - initial `Now`
+  - `Reading inbox` after save
+  - `Read` view after marking read
+
+### Noise to avoid misclassifying as product bugs
+
+- External seed pages can emit their own favicon 404s such as `https://example.com/favicon.ico`.
+- Only treat errors originating from the extension page or its resources as Tab Out regressions.
