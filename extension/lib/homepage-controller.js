@@ -4,6 +4,7 @@
 
   const state = {
     mode: 'now',
+    nowCount: 0,
     readingView: 'active',
     selectedArticleId: null,
     inboxCount: 0,
@@ -12,6 +13,20 @@
 
   function byId(id) {
     return document.getElementById(id);
+  }
+
+  function t(key, params) {
+    return globalThis.TabOutI18n ? globalThis.TabOutI18n.t(key, params) : key;
+  }
+
+  function normalizeUrl(url) {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = '';
+      return parsed.toString();
+    } catch {
+      return url || '';
+    }
   }
 
   function syncModeUi() {
@@ -49,12 +64,78 @@
     );
   }
 
+  function setNowCount(count) {
+    state.nowCount = count;
+    const badge = byId('nowModeBadge');
+    if (badge) badge.textContent = String(count);
+  }
+
   function setReadingInboxCount(count) {
     state.inboxCount = count;
     const badge = byId('readingInboxBadge');
     const queueCount = byId('readingQueueCount');
     if (badge) badge.textContent = String(count);
-    if (queueCount) queueCount.textContent = `${count} active`;
+    if (queueCount) queueCount.textContent = t('counts.activeItems', { count });
+  }
+
+  function filterVisibleNowTabs(tabs, articles) {
+    const trackedUrls = new Set(
+      (articles || [])
+        .filter((article) => article && article.lifecycle_state !== 'archived')
+        .map((article) => normalizeUrl(article.canonical_url || article.url))
+        .filter(Boolean)
+    );
+
+    return (tabs || []).filter((tab) => !trackedUrls.has(normalizeUrl(tab && tab.url)));
+  }
+
+  function dismissNowTab(tabUrl, options = {}) {
+    const normalizedUrl = normalizeUrl(tabUrl);
+    if (!normalizedUrl) return 0;
+
+    const chips = Array.from(document.querySelectorAll('.page-chip[data-action="focus-tab"]')).filter(
+      (chip) => normalizeUrl(chip.dataset.tabUrl) === normalizedUrl
+    );
+    const animate = options.animate !== false;
+
+    chips.forEach((chip) => {
+      const removeChip = () => {
+        const card = chip.closest('.mission-card');
+        chip.remove();
+        if (card && card.querySelectorAll('.page-chip[data-action="focus-tab"]').length === 0) {
+          card.remove();
+        }
+      };
+
+      if (!animate) {
+        removeChip();
+        return;
+      }
+
+      chip.style.transition = 'opacity 0.2s, transform 0.2s';
+      chip.style.opacity = '0';
+      chip.style.transform = 'scale(0.8)';
+      window.setTimeout(removeChip, 200);
+    });
+
+    const openTabsSection = byId('openTabsSection');
+    const syncSectionVisibility = () => {
+      if (!openTabsSection) return;
+      if (document.querySelectorAll('#openTabsMissions .mission-card').length === 0) {
+        openTabsSection.style.display = 'none';
+      }
+    };
+    if (openTabsSection && chips.length > 0) {
+      if (!animate) {
+        syncSectionVisibility();
+      } else {
+        window.setTimeout(() => {
+          syncSectionVisibility();
+        }, 200);
+      }
+    }
+
+    return chips.length;
   }
 
   function setSelectedArticleId(articleId) {
@@ -78,17 +159,95 @@
     }
   }
 
-  function renderPinnedItem(entry) {
-    const safeTitle = (entry.title || entry.url || '').replace(/"/g, '&quot;');
-    const safeUrl = (entry.url || '').replace(/"/g, '&quot;');
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function getPinnedHostname(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+      return '';
+    }
+  }
+
+  function getPinnedDisplayTitle(entry) {
+    return entry.title || getPinnedHostname(entry.url) || entry.url || '';
+  }
+
+  function getPinnedFallbackLabel(entry) {
+    const source = getPinnedDisplayTitle(entry);
+    const match = source.trim().match(/[A-Za-z0-9]/);
+    return match ? match[0].toUpperCase() : '#';
+  }
+
+  function getPinnedIconUrl(entry) {
+    if (entry.icon) return entry.icon;
+    try {
+      const parsed = new URL(entry.url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+      return `${parsed.origin}/favicon.ico`;
+    } catch {
+      return '';
+    }
+  }
+
+  function renderPinnedMenu(entry) {
     return `
-      <div class="pinned-item" data-pinned-id="${entry.id}">
-        <a class="pinned-link" href="${safeUrl}" target="_top" title="${safeTitle}">${entry.title || entry.url}</a>
-        <div class="pinned-actions">
-          <button class="pinned-action" type="button" data-action="edit-pinned-entry" data-pinned-id="${entry.id}">Edit</button>
-          <button class="pinned-action" type="button" data-action="remove-pinned-entry" data-pinned-id="${entry.id}">Remove</button>
+      <div class="pinned-card-controls">
+        <button
+          class="pinned-menu-trigger"
+          type="button"
+          data-action="toggle-pinned-menu"
+          data-pinned-id="${entry.id}"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          title="${escapeHtml(t('pinned.menu.moreActions'))}"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="5.5" r="1.75"></circle>
+            <circle cx="12" cy="12" r="1.75"></circle>
+            <circle cx="12" cy="18.5" r="1.75"></circle>
+          </svg>
+        </button>
+        <div class="pinned-card-menu" role="menu" aria-hidden="true">
+          <button class="pinned-menu-item" type="button" role="menuitem" data-action="edit-pinned-entry" data-pinned-id="${entry.id}">${t('actions.edit')}</button>
+          <button class="pinned-menu-item danger" type="button" role="menuitem" data-action="remove-pinned-entry" data-pinned-id="${entry.id}">${t('actions.remove')}</button>
         </div>
       </div>
+    `;
+  }
+
+  function renderPinnedItem(entry) {
+    const displayTitle = getPinnedDisplayTitle(entry);
+    const hostname = getPinnedHostname(entry.url);
+    const safeTitle = escapeHtml(displayTitle);
+    const safeUrl = escapeHtml(entry.url || '');
+    const safeHostname = escapeHtml(hostname || entry.url || '');
+    const fallbackLabel = escapeHtml(getPinnedFallbackLabel(entry));
+    const iconUrl = getPinnedIconUrl(entry);
+    const iconHtml = iconUrl
+      ? `<img class="pinned-card-favicon" src="${escapeHtml(iconUrl)}" alt="" data-hide-broken-image="true">`
+      : '';
+    return `
+      <article class="pinned-card" data-pinned-id="${entry.id}">
+        <a class="pinned-card-link" href="${safeUrl}" target="_top" title="${safeTitle}">
+          <span class="pinned-card-media" aria-hidden="true">
+            <span class="pinned-card-fallback">${fallbackLabel}</span>
+            ${iconHtml}
+          </span>
+          <span class="pinned-card-body">
+            <span class="pinned-card-title">${safeTitle}</span>
+            <span class="pinned-card-subtitle">${safeHostname}</span>
+          </span>
+        </a>
+        ${renderPinnedMenu(entry)}
+      </article>
     `;
   }
 
@@ -99,7 +258,7 @@
     if (!list || !empty || !count) return;
 
     const rows = entries || [];
-    count.textContent = rows.length ? `${rows.length} saved` : '';
+    count.textContent = rows.length ? t('counts.savedPins', { count: rows.length }) : '';
     empty.style.display = rows.length ? 'none' : 'block';
     list.style.display = rows.length ? 'grid' : 'none';
     list.innerHTML = rows.map(renderPinnedItem).join('');
@@ -157,15 +316,19 @@
 
     syncModeUi();
     syncReadingViewUi();
+    setNowCount(state.nowCount);
     setReadingInboxCount(state.inboxCount);
   }
 
   namespace.init = init;
   namespace.setMode = setMode;
   namespace.getMode = () => state.mode;
+  namespace.setNowCount = setNowCount;
   namespace.setReadingView = setReadingView;
   namespace.getReadingView = () => state.readingView;
   namespace.setReadingInboxCount = setReadingInboxCount;
+  namespace.filterVisibleNowTabs = filterVisibleNowTabs;
+  namespace.dismissNowTab = dismissNowTab;
   namespace.setSelectedArticleId = setSelectedArticleId;
   namespace.getSelectedArticleId = () => state.selectedArticleId;
   namespace.renderPinned = renderPinned;

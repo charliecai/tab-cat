@@ -1,6 +1,10 @@
 (function () {
   const namespace = (globalThis.TabOutDigestRenderer = globalThis.TabOutDigestRenderer || {});
 
+  function t(key, params) {
+    return globalThis.TabOutI18n ? globalThis.TabOutI18n.t(key, params) : key;
+  }
+
   function renderTopicSummaryPanel(viewModel) {
     if (!viewModel) return '';
 
@@ -26,7 +30,7 @@
           <h3>${viewModel.title}</h3>
           <span>${viewModel.suggestedAction}</span>
         </div>
-        <div class="topic-summary-path">Representative articles</div>
+        <div class="topic-summary-path">${t('topic.representativeArticles')}</div>
         <ul class="topic-summary-listing">${cards}</ul>
         ${related ? `<div class="topic-summary-related-list">${related}</div>` : ''}
       </section>

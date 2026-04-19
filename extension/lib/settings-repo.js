@@ -5,10 +5,17 @@
 
   async function getAiSettings() {
     const stored = await chrome.storage.local.get(SETTINGS_KEY);
-    return stored[SETTINGS_KEY] || {
+    const settings = stored[SETTINGS_KEY] || {
       base_url: '',
       api_key: '',
       model_id: '',
+      language_preference: 'auto',
+    };
+    return {
+      base_url: settings.base_url || '',
+      api_key: settings.api_key || '',
+      model_id: settings.model_id || '',
+      language_preference: settings.language_preference || 'auto',
     };
   }
 
@@ -17,6 +24,7 @@
       base_url: settings.base_url || '',
       api_key: settings.api_key || '',
       model_id: settings.model_id || '',
+      language_preference: settings.language_preference || 'auto',
       updated_at: new Date().toISOString(),
     };
     await chrome.storage.local.set({

@@ -27,14 +27,17 @@
       <div class="date" id="dateDisplay"></div>
     </div>
     <div class="header-right">
-      <div class="mode-switcher" id="modeSwitcher" aria-label="Homepage mode switcher">
-        <button class="mode-switcher-btn active" data-mode-target="now" id="nowModeButton" type="button">Now</button>
+      <div class="mode-switcher" id="modeSwitcher" data-i18n-aria-label="header.modeSwitcherLabel">
+        <button class="mode-switcher-btn active" data-mode-target="now" id="nowModeButton" type="button">
+          <span data-i18n="mode.now">Now</span>
+          <span class="mode-badge" id="nowModeBadge">0</span>
+        </button>
         <button class="mode-switcher-btn" data-mode-target="reading-inbox" id="readingInboxModeButton" type="button">
-          Reading inbox
+          <span data-i18n="mode.readingInbox">Reading inbox</span>
           <span class="mode-badge" id="readingInboxBadge">0</span>
         </button>
       </div>
-      <button class="settings-trigger" data-action="toggle-settings" type="button" aria-controls="settingsDrawer" aria-expanded="false">
+      <button class="settings-trigger" data-action="toggle-settings" type="button" aria-controls="settingsDrawer" aria-expanded="false" data-i18n="settings.trigger">
         Settings
       </button>
     </div>
@@ -52,27 +55,29 @@
         </svg>
       </div>
       <div class="tab-cleanup-text">
-        You have <strong id="tabOutDupeCount"></strong> Tab Out tabs open. Keep just this one?
+        <span id="tabOutDupePrefix" data-i18n="banner.tabOutDupesPrefix">You have</span>
+        <strong id="tabOutDupeCount"></strong>
+        <span id="tabOutDupeSuffix" data-i18n="banner.tabOutDupesSuffix">Tab Out tabs open. Keep just this one?</span>
       </div>
     </div>
-    <button class="tab-cleanup-btn" data-action="close-tabout-dupes">Close extras</button>
+    <button class="tab-cleanup-btn" data-action="close-tabout-dupes" data-i18n="actions.closeExtras">Close extras</button>
   </div>
 
   <main class="homepage-shell">
     <section class="mode-panel active" id="nowModePanel" data-mode-panel="now">
       <div class="pinned-section" id="pinnedSection">
         <div class="section-header">
-          <h2>Pinned</h2>
+          <h2 data-i18n="section.pinned">Pinned</h2>
           <div class="section-line"></div>
           <div class="section-count" id="pinnedCount"></div>
         </div>
         <div class="pinned-list" id="pinnedList"></div>
-        <div class="pinned-empty" id="pinnedEmpty">Pin a stable shortcut from an open tab.</div>
+        <div class="pinned-empty" id="pinnedEmpty" data-i18n="pinned.empty">Pin a stable shortcut from an open tab.</div>
       </div>
 
       <div class="active-section" id="openTabsSection" style="display:none">
         <div class="section-header">
-          <h2 id="openTabsSectionTitle">Open now</h2>
+          <h2 id="openTabsSectionTitle" data-i18n="section.openNow">Open now</h2>
           <div class="section-line"></div>
           <div class="section-count" id="openTabsSectionCount"></div>
         </div>
@@ -84,50 +89,35 @@
       <div class="reading-layout">
         <div class="reading-queue-panel">
           <div class="section-header">
-            <h2>Reading inbox</h2>
+            <h2 data-i18n="section.readingInbox">Reading inbox</h2>
             <div class="section-line"></div>
             <div class="section-count" id="readingQueueCount">0 active</div>
           </div>
 
           <div class="reading-view-toggle" id="readingViewToggle">
-            <button class="reading-view-btn active" type="button" data-reading-view="active">Active</button>
-            <button class="reading-view-btn" type="button" data-reading-view="read">Read</button>
+            <button class="reading-view-btn active" type="button" data-reading-view="active" data-i18n="reading.active">Active</button>
+            <button class="reading-view-btn" type="button" data-reading-view="read" data-i18n="reading.read">Read</button>
           </div>
 
           <div class="reading-queue-list" id="readingInboxList"></div>
-          <div class="reading-queue-empty" id="readingInboxEmpty">
+          <div class="reading-queue-empty" id="readingInboxEmpty" data-i18n="reading.emptyActive">
             Save your first article from Now to start a reading inbox.
           </div>
         </div>
 
         <aside class="topic-panel" id="topicSummaryPanel">
           <div class="section-header">
-            <h2>Topic overview</h2>
+            <h2 data-i18n="section.topicOverview">Topic overview</h2>
             <div class="section-line"></div>
           </div>
           <div class="topic-panel-body" id="topicSummaryBody">
-            <p class="topic-panel-lead">This panel will summarize your backlog by topic instead of opening into article detail.</p>
-            <p class="topic-panel-copy">Once items are saved, analyzed, and grouped, this becomes the calm decision layer for what to read next.</p>
+            <p class="topic-panel-lead" data-i18n="topic.initialLead">This panel will summarize your backlog by topic instead of opening into article detail.</p>
+            <p class="topic-panel-copy" data-i18n="topic.initialBody">Once items are saved, analyzed, and grouped, this becomes the calm decision layer for what to read next.</p>
           </div>
         </aside>
       </div>
     </section>
   </main>
-
-  <!-- ================================================================
-       FOOTER — global stats + refresh control
-       ================================================================ -->
-  <footer>
-    <div class="footer-stats">
-      <div class="stat">
-        <div class="stat-num" id="statTabs">—</div>
-        <div class="stat-label">Open tabs</div>
-      </div>
-    </div>
-    <div class="last-refresh">
-      <span style="color: var(--muted); font-size: 11px;"><a href="https://github.com/zarazhangrui/tab-out" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Tab Out</a> by <a href="https://x.com/zarazhangrui" target="_top" style="color: var(--muted); text-decoration: underline; text-underline-offset: 2px;">Zara</a></span>
-    </div>
-  </footer>
 
 </div><!-- end .container -->
 
@@ -143,47 +133,91 @@
   <span id="toastText"></span>
 </div>
 
+<div class="pinned-dialog-backdrop" id="pinnedEditorBackdrop" aria-hidden="true">
+  <div class="pinned-dialog" role="dialog" aria-modal="true" aria-labelledby="pinnedEditorTitle">
+    <div class="pinned-dialog-header">
+      <div>
+        <h2 id="pinnedEditorTitle" data-i18n="pinned.editor.title">Edit pinned shortcut</h2>
+        <p class="pinned-dialog-copy" data-i18n="pinned.editor.subtitle">Update the label and destination for this shortcut.</p>
+      </div>
+      <button class="pinned-dialog-close" type="button" data-action="close-pinned-editor" data-i18n="pinned.editor.close" data-i18n-aria-label="pinned.editor.closeAriaLabel">Close</button>
+    </div>
+
+    <form class="pinned-dialog-form" id="pinnedEditorForm">
+      <div class="pinned-dialog-field">
+        <label for="pinnedEditorName" data-i18n="pinned.editor.nameLabel">Name</label>
+        <input id="pinnedEditorName" type="text" autocomplete="off" data-i18n-placeholder="pinned.editor.namePlaceholder" placeholder="Project docs">
+      </div>
+
+      <div class="pinned-dialog-field">
+        <label for="pinnedEditorUrl" data-i18n="pinned.editor.urlLabel">URL</label>
+        <input id="pinnedEditorUrl" type="url" inputmode="url" autocomplete="off" data-i18n-placeholder="pinned.editor.urlPlaceholder" placeholder="https://example.com">
+      </div>
+
+      <p class="pinned-dialog-error" id="pinnedEditorError" aria-live="polite"></p>
+
+      <div class="pinned-dialog-actions">
+        <button class="pinned-dialog-button" type="button" data-action="close-pinned-editor" data-i18n="pinned.editor.cancel">Cancel</button>
+        <button class="pinned-dialog-button primary" type="submit" data-i18n="pinned.editor.save">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <aside class="settings-drawer" id="settingsDrawer" aria-hidden="true">
   <div class="settings-drawer-header">
     <div>
-      <h2>Settings</h2>
-      <p>Provider setup and a lightweight debug surface stay inside the homepage.</p>
+      <h2 data-i18n="settings.title">Settings</h2>
+      <p data-i18n="settings.subtitle">Provider setup and a lightweight debug surface stay inside the homepage.</p>
     </div>
-    <button class="settings-close" data-action="close-settings" type="button" aria-label="Close settings">Close</button>
+    <button class="settings-close" data-action="close-settings" type="button" data-i18n="settings.close" data-i18n-aria-label="settings.closeAriaLabel">Close</button>
   </div>
 
   <div class="settings-drawer-body">
     <section class="settings-block">
-      <h3>AI Provider</h3>
-      <p class="settings-block-copy">Use a single OpenAI-compatible provider. Article content only leaves the browser when analysis runs against this host.</p>
+      <h3 data-i18n="settings.provider.title">AI Provider</h3>
+      <p class="settings-block-copy" data-i18n="settings.provider.copy">Use a single OpenAI-compatible provider. Article content only leaves the browser when analysis runs against this host.</p>
       <div class="settings-field">
-        <label for="settingsBaseUrl">Base URL</label>
-        <input id="settingsBaseUrl" type="url" placeholder="https://api.example.com/v1" autocomplete="off">
+        <label for="settingsBaseUrl" data-i18n="settings.provider.baseUrlLabel">Base URL</label>
+        <input id="settingsBaseUrl" type="url" data-i18n-placeholder="settings.provider.baseUrlPlaceholder" placeholder="https://api.example.com/v1" autocomplete="off">
       </div>
       <div class="settings-field">
-        <label for="settingsApiKey">API Key</label>
-        <input id="settingsApiKey" type="password" placeholder="sk-..." autocomplete="off">
+        <label for="settingsApiKey" data-i18n="settings.provider.apiKeyLabel">API Key</label>
+        <input id="settingsApiKey" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="sk-..." autocomplete="off">
       </div>
-      <p class="settings-block-copy">Stored in plaintext inside your browser profile. Do not use on shared machines.</p>
+      <p class="settings-block-copy" data-i18n="settings.provider.apiKeyHelp">Stored in plaintext inside your browser profile. Do not use on shared machines.</p>
       <div class="settings-field">
-        <label for="settingsModelId">Model ID</label>
-        <input id="settingsModelId" type="text" placeholder="gpt-4.1-mini" autocomplete="off">
+        <label for="settingsModelId" data-i18n="settings.provider.modelIdLabel">Model ID</label>
+        <input id="settingsModelId" type="text" data-i18n-placeholder="settings.provider.modelIdPlaceholder" placeholder="gpt-4.1-mini" autocomplete="off">
       </div>
-      <p class="settings-block-copy">Captured article content will be sent to the configured AI host when analysis runs.</p>
+      <p class="settings-block-copy" data-i18n="settings.provider.captureHelp">Captured article content will be sent to the configured AI host when analysis runs.</p>
       <div class="settings-actions">
-        <button class="settings-test-button" type="button" data-action="test-ai-settings">Test connection</button>
-        <button class="settings-test-button" type="button" data-action="save-ai-settings">Save settings</button>
+        <button class="settings-test-button" type="button" data-action="test-ai-settings" data-i18n="settings.actions.testConnection">Test connection</button>
+        <button class="settings-test-button" type="button" data-action="save-ai-settings" data-i18n="settings.actions.saveSettings">Save settings</button>
       </div>
-      <div class="settings-status" id="settingsStatus">Not configured</div>
+      <div class="settings-status" id="settingsStatus" data-i18n="settings.status.notConfigured">Not configured</div>
     </section>
 
     <section class="settings-block">
-      <h3>Debug</h3>
-      <p class="settings-block-copy">Recent article pipeline states stay visible here so you can debug capture, analysis, and assignment without leaving the homepage.</p>
+      <h3 data-i18n="settings.language.title">Language</h3>
+      <div class="settings-field">
+        <label for="settingsLanguagePreference" data-i18n="settings.language.label">Display and AI language</label>
+        <select id="settingsLanguagePreference">
+          <option value="auto">Follow browser</option>
+          <option value="en">English</option>
+          <option value="zh-CN">简体中文</option>
+        </select>
+      </div>
+      <p class="settings-block-copy" data-i18n="settings.language.help">One setting controls UI copy and AI outputs for new analysis runs.</p>
+    </section>
+
+    <section class="settings-block">
+      <h3 data-i18n="section.debug">Debug</h3>
+      <p class="settings-block-copy" data-i18n="debug.copy">Recent article pipeline states stay visible here so you can debug capture, analysis, and assignment without leaving the homepage.</p>
       <div class="debug-list" id="debugList">
         <div class="debug-item">
-          <h4>No pipeline activity yet</h4>
-          <p>Recent article jobs, errors, host usage, and retry controls will appear here.</p>
+          <h4 data-i18n="debug.emptyTitle">No pipeline activity yet</h4>
+          <p data-i18n="debug.emptyBody">Recent article jobs, errors, host usage, and retry controls will appear here.</p>
         </div>
       </div>
     </section>
@@ -195,6 +229,7 @@
 <script src="lib/schema.js"></script>
 <script src="lib/db.js"></script>
 <script src="lib/settings-repo.js"></script>
+<script src="lib/i18n.js"></script>
 <script src="lib/pinned-repo.js"></script>
 <script src="lib/articles-repo.js"></script>
 <script src="lib/topics-repo.js"></script>

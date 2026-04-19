@@ -50,6 +50,7 @@
       best_reason_to_skip: input.best_reason_to_skip || null,
       lifecycle_state: input.lifecycle_state || 'active',
       processing_state: input.processing_state || 'queued',
+      close_source_tab_after_capture: Boolean(input.close_source_tab_after_capture),
       last_analyzed_at: input.last_analyzed_at || null,
       last_opened_at: input.last_opened_at || null,
       last_error_code: input.last_error_code || null,

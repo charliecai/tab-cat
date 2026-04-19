@@ -2,6 +2,7 @@ importScripts(
   'lib/schema.js',
   'lib/db.js',
   'lib/settings-repo.js',
+  'lib/i18n.js',
   'lib/articles-repo.js',
   'lib/topics-repo.js',
   'lib/jobs-repo.js',

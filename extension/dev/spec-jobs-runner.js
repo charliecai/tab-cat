@@ -154,3 +154,223 @@ test('kick classifies assignment errors as assignment_failed after analysis succ
   assertEqual(article.processing_state, 'assignment_failed');
   assertEqual(storedJob.processing_state, 'assignment_failed');
 });
+
+test('kick closes the source tab after capture succeeds for background tabs', async () => {
+  let storedJob = {
+    id: 'job-close-bg',
+    article_id: 'article-close-bg',
+    processing_state: 'queued',
+    attempt_count: 0,
+    updated_at: new Date(0).toISOString(),
+  };
+  const article = {
+    id: 'article-close-bg',
+    lifecycle_state: 'active',
+    processing_state: 'queued',
+    source_ref: '99',
+    close_source_tab_after_capture: true,
+    markdown_content: null,
+    summary_short: null,
+    main_topic_label: null,
+    recommended_action: null,
+    why_recommended: null,
+    sub_angles: [],
+    keywords: [],
+    reading_question: null,
+    content_type: null,
+    novelty_score: null,
+    duplicate_candidates: [],
+  };
+  let removedTabId = null;
+
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async () => ({}),
+    },
+    tabs: {
+      async get(tabId) {
+        return { id: tabId, active: false };
+      },
+      async remove(tabId) {
+        removedTabId = tabId;
+      },
+    },
+  };
+
+  globalThis.TabOutArticlesRepo = {
+    async getArticleById() {
+      return article;
+    },
+    async updateArticleProcessingState(_articleId, processingState) {
+      article.processing_state = processingState;
+      return article;
+    },
+    async updateArticle(_articleId, patch) {
+      Object.assign(article, patch);
+      return article;
+    },
+  };
+
+  globalThis.TabOutJobsRepo = {
+    async listJobs() {
+      return [{ ...storedJob }];
+    },
+    async getJobByArticleId() {
+      return { ...storedJob };
+    },
+    async updateJob(_jobId, patch) {
+      storedJob = {
+        ...storedJob,
+        ...patch,
+        updated_at: new Date().toISOString(),
+      };
+      return { ...storedJob };
+    },
+    async deleteJob() {},
+  };
+
+  globalThis.TabOutCapture = {
+    async captureArticle() {
+      return {
+        markdown: '# Captured',
+        excerpt: 'Excerpt',
+        word_count: 120,
+        language: 'en',
+        author: 'Author',
+        lead_image_url: null,
+      };
+    },
+  };
+
+  globalThis.TabOutSettingsRepo = {
+    async getAiSettings() {
+      return {
+        base_url: '',
+        api_key: '',
+        model_id: '',
+      };
+    },
+  };
+
+  globalThis.TabOutAiClient = {
+    validateAiSettings() {
+      return { isValid: false, errors: ['missing settings'] };
+    },
+  };
+
+  await globalThis.TabOutJobsRunner.kick();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEqual(removedTabId, 99);
+  assertEqual(article.close_source_tab_after_capture, false);
+});
+
+test('kick keeps the source tab open when capture succeeds on an active tab', async () => {
+  let storedJob = {
+    id: 'job-close-active',
+    article_id: 'article-close-active',
+    processing_state: 'queued',
+    attempt_count: 0,
+    updated_at: new Date(0).toISOString(),
+  };
+  const article = {
+    id: 'article-close-active',
+    lifecycle_state: 'active',
+    processing_state: 'queued',
+    source_ref: '77',
+    close_source_tab_after_capture: true,
+    markdown_content: null,
+    summary_short: null,
+    main_topic_label: null,
+    recommended_action: null,
+    why_recommended: null,
+    sub_angles: [],
+    keywords: [],
+    reading_question: null,
+    content_type: null,
+    novelty_score: null,
+    duplicate_candidates: [],
+  };
+  let removedTabId = null;
+
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async () => ({}),
+    },
+    tabs: {
+      async get(tabId) {
+        return { id: tabId, active: true };
+      },
+      async remove(tabId) {
+        removedTabId = tabId;
+      },
+    },
+  };
+
+  globalThis.TabOutArticlesRepo = {
+    async getArticleById() {
+      return article;
+    },
+    async updateArticleProcessingState(_articleId, processingState) {
+      article.processing_state = processingState;
+      return article;
+    },
+    async updateArticle(_articleId, patch) {
+      Object.assign(article, patch);
+      return article;
+    },
+  };
+
+  globalThis.TabOutJobsRepo = {
+    async listJobs() {
+      return [{ ...storedJob }];
+    },
+    async getJobByArticleId() {
+      return { ...storedJob };
+    },
+    async updateJob(_jobId, patch) {
+      storedJob = {
+        ...storedJob,
+        ...patch,
+        updated_at: new Date().toISOString(),
+      };
+      return { ...storedJob };
+    },
+    async deleteJob() {},
+  };
+
+  globalThis.TabOutCapture = {
+    async captureArticle() {
+      return {
+        markdown: '# Captured',
+        excerpt: 'Excerpt',
+        word_count: 120,
+        language: 'en',
+        author: 'Author',
+        lead_image_url: null,
+      };
+    },
+  };
+
+  globalThis.TabOutSettingsRepo = {
+    async getAiSettings() {
+      return {
+        base_url: '',
+        api_key: '',
+        model_id: '',
+      };
+    },
+  };
+
+  globalThis.TabOutAiClient = {
+    validateAiSettings() {
+      return { isValid: false, errors: ['missing settings'] };
+    },
+  };
+
+  await globalThis.TabOutJobsRunner.kick();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEqual(removedTabId, null);
+  assertEqual(article.close_source_tab_after_capture, false);
+});

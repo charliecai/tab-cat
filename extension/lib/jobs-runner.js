@@ -64,6 +64,44 @@
     }
   }
 
+  async function maybeCloseSourceTabAfterCapture(article) {
+    if (!article || !article.close_source_tab_after_capture) {
+      return article;
+    }
+
+    const sourceRef = Number(article.source_ref);
+    if (!sourceRef) {
+      return globalThis.TabOutArticlesRepo.updateArticle(article.id, {
+        close_source_tab_after_capture: false,
+      });
+    }
+
+    let sourceTab = null;
+    try {
+      sourceTab = await chrome.tabs.get(sourceRef);
+    } catch {
+      return globalThis.TabOutArticlesRepo.updateArticle(article.id, {
+        close_source_tab_after_capture: false,
+      });
+    }
+
+    if (sourceTab && sourceTab.active) {
+      return globalThis.TabOutArticlesRepo.updateArticle(article.id, {
+        close_source_tab_after_capture: false,
+      });
+    }
+
+    try {
+      await chrome.tabs.remove(sourceRef);
+    } catch {
+      // The tab may already be gone by the time capture finishes.
+    }
+
+    return globalThis.TabOutArticlesRepo.updateArticle(article.id, {
+      close_source_tab_after_capture: false,
+    });
+  }
+
   async function runCaptureStage(article, job) {
     await globalThis.TabOutArticlesRepo.updateArticleProcessingState(article.id, 'capturing');
     await globalThis.TabOutJobsRepo.updateJob(job.id, {
@@ -91,8 +129,9 @@
       last_error_code: null,
       last_error_message: null,
     });
+    const finalArticle = await maybeCloseSourceTabAfterCapture(nextArticle);
     await notifyDataChanged();
-    return nextArticle;
+    return finalArticle;
   }
 
   async function runAnalysisStage(article, job) {

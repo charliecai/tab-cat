@@ -1,6 +1,10 @@
 (function () {
   const namespace = (globalThis.TabOutTopicSummary = globalThis.TabOutTopicSummary || {});
 
+  function t(key, params) {
+    return globalThis.TabOutI18n ? globalThis.TabOutI18n.t(key, params) : key;
+  }
+
   function buildTopicSummaryViewModel(input) {
     const articles = input.articles || [];
     const topics = input.topics || [];
@@ -9,9 +13,9 @@
     if (!articles.length) {
       return {
         kind: 'empty',
-        title: 'Topic overview',
-        lead: 'Nothing saved yet.',
-        body: 'Save an article from Now and topic guidance will appear here.',
+        title: t('section.topicOverview'),
+        lead: t('topic.emptyLead'),
+        body: t('topic.emptyBody'),
       };
     }
 
@@ -23,9 +27,9 @@
     if (!selectedArticle.main_topic_id) {
       return {
         kind: 'fallback',
-        title: 'Topic overview',
-        lead: 'Content is saved, but topic guidance is waiting on analysis or AI configuration.',
-        body: 'The left queue still tracks the item so you can retry or continue once analysis is available.',
+        title: t('section.topicOverview'),
+        lead: t('topic.fallbackLead'),
+        body: t('topic.fallbackBody'),
       };
     }
 
@@ -34,14 +38,14 @@
 
     return {
       kind: 'topic',
-      title: topic?.title || selectedArticle.main_topic_label || 'Topic',
-      lead: topic?.one_line_digest || selectedArticle.summary_short || 'A lightweight topic view derived from analyzed articles.',
-      body: selectedArticle.why_recommended || 'Use this panel to decide what to read next, not to dump full article detail.',
+      title: topic?.title || selectedArticle.main_topic_label || t('topic.defaultTitle'),
+      lead: topic?.one_line_digest || selectedArticle.summary_short || t('topic.defaultLead'),
+      body: selectedArticle.why_recommended || t('topic.defaultBody'),
       representativeArticles: topicArticles.slice(0, 3).map((article) => ({
         id: article.id,
         title: article.title,
       })),
-      suggestedAction: selectedArticle.recommended_action || 'Review the freshest article in this topic.',
+      suggestedAction: selectedArticle.recommended_action || t('topic.defaultAction'),
       relatedTopics: topic?.related_topics || [],
     };
   }
