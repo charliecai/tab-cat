@@ -124,3 +124,29 @@ test('homepage controller hides the Now section after the last visible domain ca
   assertEqual(document.querySelectorAll('.mission-card').length, 0);
   assertEqual(document.getElementById('openTabsSection').style.display, 'none');
 });
+
+test('homepage controller renders the reading results shell without a topic summary panel', () => {
+  document.body.innerHTML = `
+    <div id="readingResultsSummary"></div>
+    <div id="readingResultsGroups"></div>
+    <div id="readingResultsEmpty"></div>
+  `;
+
+  assertEqual(typeof globalThis.TabOutHomepageController.renderReadingResultsSummary, 'function');
+  assertEqual(typeof globalThis.TabOutHomepageController.renderReadingResultGroups, 'function');
+  assertEqual(typeof globalThis.TabOutHomepageController.setTopicSummary, 'undefined');
+  assertEqual(Boolean(document.getElementById('topicSummaryPanel')), false);
+
+  globalThis.TabOutHomepageController.renderReadingResultsSummary('<span>2 results</span>');
+  globalThis.TabOutHomepageController.renderReadingResultGroups(
+    '<article class="reading-result-card">One</article>',
+    'No matching articles'
+  );
+
+  assertEqual(document.getElementById('readingResultsSummary').innerHTML, '<span>2 results</span>');
+  assertEqual(
+    document.querySelectorAll('#readingResultsGroups .reading-result-card').length,
+    1
+  );
+  assertEqual(document.getElementById('readingResultsEmpty').style.display, 'none');
+});

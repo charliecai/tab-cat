@@ -30,6 +30,13 @@ let pinnedEditorState = {
   entry: null,
   trigger: null,
 };
+let readingFilterState = {
+  search: '',
+  labels: [],
+  source: '',
+  time: '',
+  status: [],
+};
 
 /**
  * fetchOpenTabs()
@@ -286,7 +293,7 @@ async function saveTabForLater(tab) {
     });
 
     const checkpointState = getRetryCheckpointState(existing.processing_state);
-    const shouldRequeue = checkpointState !== 'assigned';
+    const shouldRequeue = checkpointState !== 'ready';
     if (!shouldRequeue) {
       return {
         article: refreshed,
@@ -789,20 +796,17 @@ function getRetryCheckpointState(processingState) {
   if (processingState === 'capture_failed' || processingState === 'queued' || processingState === 'capturing') {
     return 'queued';
   }
-  if (processingState === 'analysis_failed' || processingState === 'captured' || processingState === 'analyzing') {
+  if (processingState === 'analysis_failed' || processingState === 'captured' || processingState === 'analyzing' || processingState === 'ready') {
     return 'captured';
-  }
-  if (processingState === 'assignment_failed' || processingState === 'analyzed' || processingState === 'assigning') {
-    return 'analyzed';
   }
   return processingState || 'queued';
 }
 
 function getProcessingTone(processingState) {
-  if (['capture_failed', 'analysis_failed', 'assignment_failed'].includes(processingState)) {
+  if (['capture_failed', 'analysis_failed'].includes(processingState)) {
     return 'warning';
   }
-  if (['assigned'].includes(processingState)) {
+  if (['ready'].includes(processingState)) {
     return 'ready';
   }
   return 'pending';
@@ -818,48 +822,344 @@ function getProcessingLabel(processingState) {
       return t('processing.captured');
     case 'analyzing':
       return t('processing.analyzing');
-    case 'analyzed':
-      return t('processing.analyzed');
-    case 'assigning':
-      return t('processing.assigning');
-    case 'assigned':
-      return t('processing.assigned');
+    case 'ready':
+      return t('processing.ready');
     case 'capture_failed':
       return t('processing.capture_failed');
     case 'analysis_failed':
       return t('processing.analysis_failed');
-    case 'assignment_failed':
-      return t('processing.assignment_failed');
     default:
       return t('processing.pending');
   }
 }
 
-function getRecommendedActionLabel(article) {
-  if (article.recommended_action) return article.recommended_action;
-  if (article.processing_state === 'assigned') return t('recommendedAction.reviewTopic');
-  if (['analysis_failed', 'assignment_failed'].includes(article.processing_state)) return t('recommendedAction.retryAfterFixingAi');
-  if (article.processing_state === 'capture_failed') return t('recommendedAction.retryCapture');
-  return t('recommendedAction.waitingForAnalysis');
-}
-
-function getRowStatusReason(article) {
+function getShortReason(article) {
+  if (article.short_reason) {
+    return article.short_reason;
+  }
   if (article.processing_state === 'capture_failed') {
     return t('reason.captureFailed');
   }
   if (article.processing_state === 'analysis_failed') {
     return t('reason.analysisFailed');
   }
-  if (article.processing_state === 'assignment_failed') {
-    return t('reason.assignmentFailed');
-  }
-  if (article.main_topic_label) {
-    return article.why_recommended || t('reason.readyInTopic');
-  }
-  if (article.processing_state === 'assigned') {
-    return t('reason.readyForTopicReview');
+  if (article.processing_state === 'ready') {
+    return t('reason.readyToReopen');
   }
   return t('reason.waitingForPipeline');
+}
+
+function getPriorityBucket(article) {
+  if (['read_now', 'worth_keeping', 'skim_later'].includes(article.priority_bucket)) {
+    return article.priority_bucket;
+  }
+  return article.processing_state === 'ready' ? 'worth_keeping' : 'skim_later';
+}
+
+function getPriorityHeading(bucket) {
+  switch (bucket) {
+    case 'read_now':
+      return t('reading.priority.readNow');
+    case 'worth_keeping':
+      return t('reading.priority.worthKeeping');
+    default:
+      return t('reading.priority.skimLater');
+  }
+}
+
+function getReadingTimeLabel(article) {
+  const estimate = Number(article.reading_time_estimate);
+  if (Number.isFinite(estimate) && estimate > 0) {
+    return t('reading.readingTimeMinutes', { count: estimate });
+  }
+  const words = Number(article.word_count);
+  if (Number.isFinite(words) && words > 0) {
+    return t('reading.readingTimeMinutes', { count: Math.max(1, Math.round(words / 200)) });
+  }
+  return '';
+}
+
+function getArticleSource(article) {
+  return article.site_name || getSiteNameFromUrl(article.url);
+}
+
+function getArticleTimeBucket(article) {
+  const source = article.last_saved_at || article.saved_at;
+  if (!source) return 'older';
+  const diffDays = Math.floor((Date.now() - new Date(source).getTime()) / 86400000);
+  if (diffDays < 1) return 'today';
+  if (diffDays < 3) return 'last_3_days';
+  if (diffDays < 7) return 'last_7_days';
+  return 'older';
+}
+
+function getArticleStatusTokens(article) {
+  const tokens = [];
+  if (article.processing_state === 'ready') {
+    tokens.push('ready');
+  } else if (['capture_failed', 'analysis_failed'].includes(article.processing_state)) {
+    tokens.push('failed');
+  } else {
+    tokens.push('processing');
+  }
+  tokens.push(article.last_opened_at ? 'opened' : 'unopened');
+  return tokens;
+}
+
+function needsReadingMetadataBackfill(article) {
+  if (!article) return false;
+  if (['queued', 'capturing', 'captured', 'analyzing', 'capture_failed', 'analysis_failed'].includes(article.processing_state)) {
+    return false;
+  }
+  const hasLabels = Array.isArray(article.labels) && article.labels.length > 0;
+  return !hasLabels || !article.priority_bucket || !article.short_reason;
+}
+
+async function ensureReadingMetadataBackfill(articles) {
+  const jobsRepo = globalThis.TabOutJobsRepo;
+  const articlesRepo = globalThis.TabOutArticlesRepo;
+  if (!jobsRepo || !articlesRepo) return false;
+
+  let enqueued = false;
+  for (const article of articles) {
+    if (!needsReadingMetadataBackfill(article)) continue;
+    const existingJob = await jobsRepo.getJobByArticleId(article.id);
+    if (existingJob && existingJob.processing_state !== 'ready') continue;
+
+    const checkpointState = article.markdown_content ? 'captured' : 'queued';
+    await articlesRepo.updateArticleProcessingState(article.id, checkpointState);
+    article.processing_state = checkpointState;
+    await jobsRepo.enqueueJob({
+      article_id: article.id,
+      processing_state: checkpointState,
+    });
+    enqueued = true;
+  }
+
+  if (enqueued) {
+    await kickBackgroundJobs();
+  }
+  return enqueued;
+}
+
+function uniqueSorted(values) {
+  return Array.from(new Set(values.filter(Boolean))).sort((left, right) =>
+    String(left).localeCompare(String(right))
+  );
+}
+
+function deriveReadingFilters(articles) {
+  return {
+    labels: uniqueSorted(articles.flatMap((article) => article.labels || [])).map((value) => ({
+      value,
+      count: articles.filter((article) => (article.labels || []).includes(value)).length,
+    })),
+    sources: uniqueSorted(articles.map(getArticleSource)).map((value) => ({
+      value,
+      count: articles.filter((article) => getArticleSource(article) === value).length,
+    })),
+    times: ['today', 'last_3_days', 'last_7_days', 'older']
+      .map((value) => ({
+        value,
+        count: articles.filter((article) => getArticleTimeBucket(article) === value).length,
+      }))
+      .filter((entry) => entry.count > 0),
+    statuses: ['ready', 'processing', 'failed', 'unopened', 'opened']
+      .map((value) => ({
+        value,
+        count: articles.filter((article) => getArticleStatusTokens(article).includes(value)).length,
+      }))
+      .filter((entry) => entry.count > 0),
+  };
+}
+
+function applyReadingFilters(articles, filterState) {
+  const query = (filterState.search || '').trim().toLowerCase();
+  return (articles || []).filter((article) => {
+    if (query) {
+      const haystack = `${article.title || ''} ${article.url || ''} ${getArticleSource(article)}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    if (filterState.labels.length > 0 && !filterState.labels.some((label) => (article.labels || []).includes(label))) {
+      return false;
+    }
+    if (filterState.source && getArticleSource(article) !== filterState.source) {
+      return false;
+    }
+    if (filterState.time && getArticleTimeBucket(article) !== filterState.time) {
+      return false;
+    }
+    if (filterState.status.length > 0) {
+      const tokens = getArticleStatusTokens(article);
+      if (!filterState.status.every((token) => tokens.includes(token))) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function groupReadingResultsByPriority(articles) {
+  const order = ['read_now', 'worth_keeping', 'skim_later'];
+  return order
+    .map((bucket) => ({
+      id: bucket,
+      title: getPriorityHeading(bucket),
+      articles: articles
+        .filter((article) => getPriorityBucket(article) === bucket)
+        .sort(
+          (left, right) =>
+            new Date(right.last_saved_at || right.saved_at || 0).getTime() -
+            new Date(left.last_saved_at || left.saved_at || 0).getTime()
+        ),
+    }))
+    .filter((group) => group.articles.length > 0);
+}
+
+function buildActiveFilterChips(filterState) {
+  const chips = [];
+  if (filterState.search) {
+    chips.push({ kind: 'search', value: filterState.search, label: `${t('reading.filters.search')}: ${filterState.search}` });
+  }
+  filterState.labels.forEach((value) => {
+    chips.push({ kind: 'label', value, label: value });
+  });
+  if (filterState.source) {
+    chips.push({ kind: 'source', value: filterState.source, label: filterState.source });
+  }
+  if (filterState.time) {
+    chips.push({ kind: 'time', value: filterState.time, label: t(`reading.time.${filterState.time}`) });
+  }
+  filterState.status.forEach((value) => {
+    chips.push({ kind: 'status', value, label: t(`reading.status.${value}`) });
+  });
+  return chips;
+}
+
+function renderFilterOption(kind, value, label, count, active) {
+  return `
+    <button class="reading-filter-option${active ? ' active' : ''}" type="button" data-action="toggle-reading-filter" data-filter-kind="${escapeAttribute(kind)}" data-filter-value="${escapeAttribute(value)}">
+      <span>${label}</span>
+      <span>${count}</span>
+    </button>
+  `;
+}
+
+function renderReadingFiltersHtml(filters, filterState) {
+  const activeSource = filterState.source;
+  const activeTime = filterState.time;
+  return `
+    <div class="reading-filter-stack">
+      <label class="reading-filter-search">
+        <span>${t('reading.filters.search')}</span>
+        <input id="readingFilterSearch" type="search" value="${escapeAttribute(filterState.search)}" placeholder="${escapeAttribute(t('reading.searchPlaceholder'))}">
+      </label>
+      <section class="reading-filter-section">
+        <h3>${t('reading.filters.labels')}</h3>
+        <div class="reading-filter-options">
+          ${filters.labels.map((entry) => renderFilterOption('label', entry.value, entry.value, entry.count, filterState.labels.includes(entry.value))).join('') || `<p class="reading-filter-empty">${t('reading.filters.empty')}</p>`}
+        </div>
+      </section>
+      <section class="reading-filter-section">
+        <h3>${t('reading.filters.source')}</h3>
+        <div class="reading-filter-options">
+          ${filters.sources.map((entry) => renderFilterOption('source', entry.value, entry.value, entry.count, activeSource === entry.value)).join('')}
+        </div>
+      </section>
+      <section class="reading-filter-section">
+        <h3>${t('reading.filters.time')}</h3>
+        <div class="reading-filter-options">
+          ${filters.times.map((entry) => renderFilterOption('time', entry.value, t(`reading.time.${entry.value}`), entry.count, activeTime === entry.value)).join('')}
+        </div>
+      </section>
+      <section class="reading-filter-section">
+        <h3>${t('reading.filters.status')}</h3>
+        <div class="reading-filter-options">
+          ${filters.statuses.map((entry) => renderFilterOption('status', entry.value, t(`reading.status.${entry.value}`), entry.count, filterState.status.includes(entry.value))).join('')}
+        </div>
+      </section>
+      <button class="reading-clear-filters" type="button" data-action="clear-reading-filters">${t('reading.clearFilters')}</button>
+    </div>
+  `;
+}
+
+function renderReadingResultsSummaryHtml(totalCount, visibleCount, filterState) {
+  const chips = buildActiveFilterChips(filterState);
+  return `
+    <div class="reading-results-summary-bar">
+      <div class="reading-results-count">${t('reading.resultsCount', { count: visibleCount, total: totalCount })}</div>
+      <div class="reading-active-filters">
+        ${chips.map((chip) => `<span class="reading-active-filter">${chip.label}</span>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderReadingResultCard(article) {
+  const safeTitle = (article.title || article.url || '').replace(/"/g, '&quot;');
+  const safeUrl = (article.url || '').replace(/"/g, '&quot;');
+  const processingLabel = getProcessingLabel(article.processing_state);
+  const processingTone = getProcessingTone(article.processing_state);
+  const reason = getShortReason(article);
+  const isRetryable = ['capture_failed', 'analysis_failed'].includes(article.processing_state);
+  const isReadView = article.lifecycle_state === 'read';
+  const readingTimeLabel = getReadingTimeLabel(article);
+  const labels = (article.labels || []).slice(0, 4);
+  const labelHtml = labels
+    .map((label) => `<span class="reading-result-label">${label}</span>`)
+    .join('');
+  const primaryAction = `<button class="reading-item-action primary" type="button" data-action="open-article-source" data-article-url="${safeUrl}">${t('actions.open')}</button>`;
+  const secondaryAction = isReadView
+    ? `<button class="reading-item-action" type="button" data-action="archive-article" data-article-id="${article.id}">${t('actions.archive')}</button>`
+    : `<button class="reading-item-action" type="button" data-action="mark-article-read" data-article-id="${article.id}">${t('actions.markRead')}</button>`;
+  const retryAction = isRetryable
+    ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
+    : '';
+  const metaBits = [getArticleSource(article), timeAgo(article.last_saved_at || article.saved_at), readingTimeLabel]
+    .filter(Boolean)
+    .map((value) => `<span>${value}</span>`)
+    .join('');
+
+  return `
+    <article class="reading-result-card" data-article-id="${article.id}">
+      <div class="reading-result-main">
+        <div class="reading-result-heading">
+          <button class="reading-result-title" type="button" data-action="open-article-source" data-article-url="${safeUrl}" title="${safeTitle}">${article.title || article.url}</button>
+          <span class="reading-item-processing ${processingTone}">${processingLabel}</span>
+        </div>
+        <div class="reading-result-meta">${metaBits}</div>
+        <div class="reading-result-labels">${labelHtml || `<span class="reading-result-label muted">${t('reading.labelsPending')}</span>`}</div>
+        <p class="reading-result-reason">${reason}</p>
+      </div>
+      <div class="reading-result-actions">
+        ${primaryAction}
+        ${secondaryAction}
+        <button class="reading-item-action" type="button" data-action="delete-article" data-article-id="${article.id}">${t('actions.delete')}</button>
+        ${retryAction}
+      </div>
+      <div class="reading-item-delete-confirm" data-delete-confirm-for="${article.id}">
+        <span>${t('reading.deleteConfirm')}</span>
+        <button class="reading-item-action danger" type="button" data-action="confirm-delete-article" data-article-id="${article.id}">${t('actions.delete')}</button>
+        <button class="reading-item-action" type="button" data-action="cancel-delete-article" data-article-id="${article.id}">${t('actions.cancel')}</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderReadingResultGroupsHtml(groups) {
+  return groups
+    .map((group) => `
+      <section class="reading-result-group" data-priority-group="${group.id}">
+        <div class="reading-result-group-header">
+          <h3>${group.title}</h3>
+          <span>${t('counts.articles', { count: group.articles.length })}</span>
+        </div>
+        <div class="reading-result-list">
+          ${group.articles.map(renderReadingResultCard).join('')}
+        </div>
+      </section>
+    `)
+    .join('');
 }
 
 function isLikelyReadingTab(tab) {
@@ -1530,104 +1830,6 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     </div>`;
 }
 
-function renderReadingInboxRow(article) {
-  const safeTitle = (article.title || article.url || '').replace(/"/g, '&quot;');
-  const safeUrl = (article.url || '').replace(/"/g, '&quot;');
-  const topicLabel = article.main_topic_label || t('reading.topicPending');
-  const recommendedAction = getRecommendedActionLabel(article);
-  const processingLabel = getProcessingLabel(article.processing_state);
-  const processingTone = getProcessingTone(article.processing_state);
-  const reason = getRowStatusReason(article);
-  const isRetryable = ['capture_failed', 'analysis_failed', 'assignment_failed'].includes(article.processing_state);
-  const isReadView = article.lifecycle_state === 'read';
-  const primaryAction = isReadView
-    ? `<button class="reading-item-action" type="button" data-action="archive-article" data-article-id="${article.id}">${t('actions.archive')}</button>`
-    : `<button class="reading-item-action" type="button" data-action="mark-article-read" data-article-id="${article.id}">${t('actions.markRead')}</button>`;
-  const retryAction = isRetryable
-    ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
-    : '';
-
-  return `
-    <article class="reading-item" data-action="select-reading-article" data-article-id="${article.id}">
-      <div class="reading-item-main">
-        <div class="reading-item-heading">
-          <button class="reading-item-title" type="button" data-action="open-article-source" data-article-url="${safeUrl}" title="${safeTitle}">${article.title || article.url}</button>
-          <span class="reading-item-processing ${processingTone}">${processingLabel}</span>
-        </div>
-        <div class="reading-item-meta">
-          <span>${article.site_name || getSiteNameFromUrl(article.url)}</span>
-          <span>${timeAgo(article.last_saved_at || article.saved_at)}</span>
-        </div>
-        <div class="reading-item-topic">${topicLabel}</div>
-        <div class="reading-item-reason">${recommendedAction} · ${reason}</div>
-      </div>
-      <div class="reading-item-actions">
-        ${primaryAction}
-        <button class="reading-item-action" type="button" data-action="delete-article" data-article-id="${article.id}">${t('actions.delete')}</button>
-        ${retryAction}
-      </div>
-      <div class="reading-item-delete-confirm" data-delete-confirm-for="${article.id}">
-        <span>${t('reading.deleteConfirm')}</span>
-        <button class="reading-item-action danger" type="button" data-action="confirm-delete-article" data-article-id="${article.id}">${t('actions.delete')}</button>
-        <button class="reading-item-action" type="button" data-action="cancel-delete-article" data-article-id="${article.id}">${t('actions.cancel')}</button>
-      </div>
-    </article>
-  `;
-}
-
-function deriveTopicSummary(topics, articles) {
-  if (!articles.length) {
-    return `
-      <p class="topic-panel-lead">Nothing to triage yet.</p>
-      <p class="topic-panel-copy">Save an article from Now and the inbox will start building a calm topic overview here.</p>
-    `;
-  }
-
-  const assigned = articles.filter((article) => article.main_topic_id && article.processing_state === 'assigned');
-  if (!assigned.length) {
-    return `
-      <p class="topic-panel-lead">Articles are saved, but topic guidance is still forming.</p>
-      <p class="topic-panel-copy">Capture and analysis can complete before topic assignment. Failed or unassigned items stay visible on the left so you never lose them.</p>
-    `;
-  }
-
-  const grouped = new Map();
-  assigned.forEach((article) => {
-    const key = article.main_topic_id || article.main_topic_label;
-    const bucket = grouped.get(key) || {
-      topic: topics.find((item) => item.id === article.main_topic_id) || null,
-      articles: [],
-    };
-    bucket.articles.push(article);
-    grouped.set(key, bucket);
-  });
-
-  const cards = Array.from(grouped.values())
-    .sort((left, right) => right.articles.length - left.articles.length)
-    .slice(0, 4)
-    .map(({ topic, articles: topicArticles }) => {
-      const label = topic?.title || topicArticles[0].main_topic_label || 'Untitled topic';
-      const lead = topic?.one_line_digest || topicArticles[0].summary_short || 'A lightweight topic cluster drawn from your saved articles.';
-      const firstArticle = topicArticles[0];
-      return `
-        <section class="topic-summary-card">
-          <div class="topic-summary-heading">
-            <h3>${label}</h3>
-            <span>${topicArticles.length} article${topicArticles.length !== 1 ? 's' : ''}</span>
-          </div>
-          <p>${lead}</p>
-          <div class="topic-summary-path">Start with ${firstArticle.title || firstArticle.url}</div>
-        </section>
-      `;
-    })
-    .join('');
-
-  return `
-    <p class="topic-panel-lead">Your backlog is starting to cluster into a few clear themes.</p>
-    <div class="topic-summary-list">${cards}</div>
-  `;
-}
-
 async function renderPinnedSurface() {
   const controller = getHomepageController();
   const pinnedRepo = globalThis.TabOutPinnedRepo;
@@ -1639,41 +1841,26 @@ async function renderPinnedSurface() {
 async function renderReadingInboxSurface() {
   const controller = getHomepageController();
   const articlesRepo = globalThis.TabOutArticlesRepo;
-  const topicsRepo = globalThis.TabOutTopicsRepo;
-  if (!controller || !articlesRepo || !topicsRepo) return;
+  if (!controller || !articlesRepo) return;
 
   const activeCount = await articlesRepo.countActiveInboxItems();
   controller.setReadingInboxCount(activeCount);
 
-  const lifecycleState = controller.getReadingView() === 'read' ? 'read' : 'active';
-  const articles = await articlesRepo.listArticlesByLifecycleState(lifecycleState, {
+  const articles = await articlesRepo.listArticlesByLifecycleState('active', {
     sort: 'last_saved_at_desc',
   });
-  const topics = await topicsRepo.listTopics();
-  const selectedArticleId = controller.getSelectedArticleId();
-  const nextSelectedArticleId =
-    (selectedArticleId && articles.some((article) => article.id === selectedArticleId) && selectedArticleId) ||
-    (articles[0] ? articles[0].id : null);
-  if (nextSelectedArticleId !== selectedArticleId) {
-    controller.setSelectedArticleId(nextSelectedArticleId);
-    return;
-  }
-
-  controller.renderReadingInboxList(
-    articles.map(renderReadingInboxRow),
-    lifecycleState === 'active'
-      ? t('reading.emptyActive')
-      : t('reading.emptyRead')
+  await ensureReadingMetadataBackfill(articles);
+  const filters = deriveReadingFilters(articles);
+  const visibleArticles = applyReadingFilters(articles, readingFilterState);
+  const groups = groupReadingResultsByPriority(visibleArticles);
+  controller.renderReadingFilters(renderReadingFiltersHtml(filters, readingFilterState));
+  controller.renderReadingResultsSummary(
+    renderReadingResultsSummaryHtml(articles.length, visibleArticles.length, readingFilterState)
   );
-  document.querySelectorAll('.reading-item').forEach((row) => {
-    row.classList.toggle('selected', row.dataset.articleId === nextSelectedArticleId);
-  });
-  const viewModel = globalThis.TabOutTopicSummary.buildTopicSummaryViewModel({
-    articles,
-    topics,
-    selectedArticleId: nextSelectedArticleId,
-  });
-  controller.setTopicSummary(globalThis.TabOutDigestRenderer.renderTopicSummaryPanel(viewModel));
+  controller.renderReadingResultGroups(
+    renderReadingResultGroupsHtml(groups),
+    articles.length === 0 ? t('reading.emptyActive') : t('reading.emptyFiltered')
+  );
   await renderDebugSurface();
 }
 
@@ -1729,7 +1916,7 @@ async function renderDebugSurface() {
         : '';
       const lifecycleLabel =
         article.lifecycle_state === 'read' ? t('lifecycle.read') : t('lifecycle.active');
-      const retryAction = ['capture_failed', 'analysis_failed', 'assignment_failed'].includes(article.processing_state)
+      const retryAction = ['capture_failed', 'analysis_failed'].includes(article.processing_state)
         ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
         : '';
       return `
@@ -2206,11 +2393,6 @@ document.addEventListener('click', async (e) => {
   }
 
   if (action === 'select-reading-article') {
-    const articleId = actionEl.dataset.articleId;
-    if (!articleId) return;
-    const controller = getHomepageController();
-    if (!controller) return;
-    controller.setSelectedArticleId(articleId);
     return;
   }
 
@@ -2370,14 +2552,14 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'delete-article') {
     const articleId = actionEl.dataset.articleId;
-    const row = actionEl.closest('.reading-item');
+    const row = actionEl.closest('.reading-result-card');
     if (!articleId || !row) return;
     row.classList.add('confirming-delete');
     return;
   }
 
   if (action === 'cancel-delete-article') {
-    const row = actionEl.closest('.reading-item');
+    const row = actionEl.closest('.reading-result-card');
     if (row) {
       row.classList.remove('confirming-delete');
     }
@@ -2400,14 +2582,6 @@ document.addEventListener('click', async (e) => {
 
     await globalThis.TabOutArticlesRepo.deleteArticlePermanently(articleId);
 
-    if (article.main_topic_id && globalThis.TabOutTopicsRepo && globalThis.TabOutArticlesRepo) {
-      const topicArticles = await globalThis.TabOutArticlesRepo.listArticles();
-      const stillExists = topicArticles.some((item) => item.main_topic_id === article.main_topic_id && item.id !== articleId);
-      if (!stillExists) {
-        await globalThis.TabOutTopicsRepo.deleteTopic(article.main_topic_id);
-      }
-    }
-
     await renderReadingInboxSurface();
     showToast(t('toast.deleted'));
     return;
@@ -2427,6 +2601,40 @@ document.addEventListener('click', async (e) => {
     await kickBackgroundJobs();
     await renderReadingInboxSurface();
     showToast(t('toast.queuedForRetry'));
+    return;
+  }
+
+  if (action === 'toggle-reading-filter') {
+    const kind = actionEl.dataset.filterKind;
+    const value = actionEl.dataset.filterValue;
+    if (!kind || !value) return;
+    if (kind === 'label' || kind === 'status') {
+      const current = new Set(readingFilterState[kind]);
+      if (current.has(value)) {
+        current.delete(value);
+      } else {
+        current.add(value);
+      }
+      readingFilterState = { ...readingFilterState, [kind]: Array.from(current) };
+    } else {
+      readingFilterState = {
+        ...readingFilterState,
+        [kind]: readingFilterState[kind] === value ? '' : value,
+      };
+    }
+    await renderReadingInboxSurface();
+    return;
+  }
+
+  if (action === 'clear-reading-filters') {
+    readingFilterState = {
+      search: '',
+      labels: [],
+      source: '',
+      time: '',
+      status: [],
+    };
+    await renderReadingInboxSurface();
     return;
   }
 
@@ -2621,6 +2829,15 @@ document.addEventListener('input', (event) => {
   setPinnedEditorError('');
 });
 
+document.addEventListener('input', async (event) => {
+  if (event.target.id !== 'readingFilterSearch') return;
+  readingFilterState = {
+    ...readingFilterState,
+    search: event.target.value || '',
+  };
+  await renderReadingInboxSurface();
+});
+
 // ---- Archive search — filter archived items as user types ----
 document.addEventListener('input', async (e) => {
   if (e.target.id !== 'archiveSearch') return;
@@ -2655,12 +2872,24 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
-loadOptionalLocalConfig()
-  .catch((error) => {
-    console.warn('[tab-out] Optional local config failed to load:', error);
-  })
-  .finally(() => {
-    renderDashboard().catch((error) => {
-      console.error('[tab-out] Failed to initialize dashboard:', error);
+globalThis.TabOutReadingInbox = {
+  deriveReadingFilters,
+  applyReadingFilters,
+  groupReadingResultsByPriority,
+  needsReadingMetadataBackfill,
+  renderReadingResultCard,
+  renderReadingResultGroupsHtml,
+  renderReadingResultsSummaryHtml,
+};
+
+if (!globalThis.__TAB_OUT_SKIP_BOOT__) {
+  loadOptionalLocalConfig()
+    .catch((error) => {
+      console.warn('[tab-out] Optional local config failed to load:', error);
+    })
+    .finally(() => {
+      renderDashboard().catch((error) => {
+        console.error('[tab-out] Failed to initialize dashboard:', error);
+      });
     });
-  });
+}

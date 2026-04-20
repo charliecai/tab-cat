@@ -69,8 +69,13 @@
     return `${prefix}_${Date.now()}_${random}`;
   }
 
+  function resetCachedDbForTests() {
+    dbPromise = null;
+  }
+
   namespace.openTabOutDb = openTabOutDb;
   namespace.requestToPromise = requestToPromise;
   namespace.runTransaction = runTransaction;
   namespace.generateId = generateId;
+  namespace.resetCachedDbForTests = resetCachedDbForTests;
 })();

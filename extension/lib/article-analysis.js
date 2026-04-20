@@ -11,16 +11,11 @@
 
   function analyzeArticleResponse(payload) {
     return {
-      summaryShort: payload.summary_short || payload.summaryShort || null,
-      mainTopicLabel: payload.main_topic_label || payload.mainTopicLabel || null,
-      recommendedAction: payload.recommended_action || payload.recommendedAction || null,
-      whyRecommended: payload.why_recommended || payload.whyRecommended || null,
-      subAngles: payload.sub_angles || payload.subAngles || [],
-      keywords: payload.keywords || [],
-      readingQuestion: payload.reading_question || payload.readingQuestion || null,
-      contentType: payload.content_type || payload.contentType || null,
-      noveltyScore: payload.novelty_score || payload.noveltyScore || null,
-      duplicateCandidates: payload.duplicate_candidates || payload.duplicateCandidates || [],
+      labels: Array.isArray(payload.labels) ? payload.labels : [],
+      priorityBucket: payload.priority_bucket || payload.priorityBucket || null,
+      shortReason: payload.short_reason || payload.shortReason || null,
+      readingTimeEstimate:
+        payload.reading_time_estimate || payload.readingTimeEstimate || null,
     };
   }
 
@@ -39,7 +34,7 @@
     return [
       'You are analyzing one saved article for a browser reading inbox.',
       'Return strict JSON with snake_case keys:',
-      'summary_short, main_topic_label, recommended_action, why_recommended, sub_angles, keywords, reading_question, content_type, novelty_score, duplicate_candidates.',
+      'labels, priority_bucket, short_reason, reading_time_estimate.',
       'Keep every JSON key in English snake_case exactly as specified.',
       `All natural-language string values must be written in ${outputLanguage}.`,
       `Title: ${metadata.title || ''}`,

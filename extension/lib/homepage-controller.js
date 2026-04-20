@@ -264,12 +264,18 @@
     list.innerHTML = rows.map(renderPinnedItem).join('');
   }
 
-  function renderReadingInboxList(items, emptyText) {
-    const list = byId('readingInboxList');
-    const empty = byId('readingInboxEmpty');
-    if (!list || !empty) return;
+  function renderReadingFilters(content) {
+    const body = byId('readingFiltersBody');
+    if (body) body.innerHTML = content;
+  }
 
-    if (!items || items.length === 0) {
+  function renderReadingResultGroups(items, emptyText) {
+    const list = byId('readingResultsGroups');
+    const empty = byId('readingResultsEmpty');
+    if (!list || !empty) return;
+    const renderedItems = Array.isArray(items) ? items.join('') : (items || '');
+
+    if (!renderedItems) {
       list.innerHTML = '';
       list.style.display = 'none';
       empty.style.display = 'block';
@@ -277,13 +283,13 @@
       return;
     }
 
-    list.innerHTML = items.join('');
+    list.innerHTML = renderedItems;
     list.style.display = 'grid';
     empty.style.display = 'none';
   }
 
-  function setTopicSummary(content) {
-    const body = byId('topicSummaryBody');
+  function renderReadingResultsSummary(content) {
+    const body = byId('readingResultsSummary');
     if (body) body.innerHTML = content;
   }
 
@@ -332,7 +338,8 @@
   namespace.setSelectedArticleId = setSelectedArticleId;
   namespace.getSelectedArticleId = () => state.selectedArticleId;
   namespace.renderPinned = renderPinned;
-  namespace.renderReadingInboxList = renderReadingInboxList;
-  namespace.setTopicSummary = setTopicSummary;
+  namespace.renderReadingFilters = renderReadingFilters;
+  namespace.renderReadingResultGroups = renderReadingResultGroups;
+  namespace.renderReadingResultsSummary = renderReadingResultsSummary;
   namespace.toggleSettings = toggleSettings;
 })();

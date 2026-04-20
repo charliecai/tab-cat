@@ -1,11 +1,11 @@
-test('computeJobTransition rolls assigning back to analyzed checkpoint', () => {
+test('computeJobTransition rolls analyzing back to captured checkpoint', () => {
   const result = computeJobTransition({
     type: 'rollback_stuck_job',
-    processingState: 'assigning',
+    processingState: 'analyzing',
   });
 
   assertDeepEqual(result, {
-    processingState: 'analyzed',
+    processingState: 'captured',
     retryable: true,
   });
 });
@@ -23,7 +23,7 @@ test('computeJobTransition marks capture success as captured', () => {
   });
 });
 
-test('kick classifies assignment errors as assignment_failed after analysis succeeds', async () => {
+test('kick stores queue metadata and marks the article ready after analysis succeeds', async () => {
   let storedJob = {
     id: 'job-1',
     article_id: 'article-1',
@@ -37,19 +37,11 @@ test('kick classifies assignment errors as assignment_failed after analysis succ
     lifecycle_state: 'active',
     processing_state: 'captured',
     markdown_content: '# Draft',
-    summary_short: null,
-    main_topic_label: null,
-    recommended_action: null,
-    why_recommended: null,
-    sub_angles: [],
-    keywords: [],
-    reading_question: null,
-    content_type: null,
-    novelty_score: null,
-    duplicate_candidates: [],
+    labels: [],
+    priority_bucket: null,
+    short_reason: null,
+    reading_time_estimate: null,
   };
-
-  let finalFailureState = null;
 
   globalThis.chrome = {
     runtime: {
@@ -66,9 +58,6 @@ test('kick classifies assignment errors as assignment_failed after analysis succ
     },
     async updateArticle(_articleId, patch) {
       Object.assign(article, patch);
-      if (patch.processing_state && patch.processing_state.endsWith('_failed')) {
-        finalFailureState = patch.processing_state;
-      }
       return article;
     },
   };
@@ -86,9 +75,6 @@ test('kick classifies assignment errors as assignment_failed after analysis succ
         ...patch,
         updated_at: new Date().toISOString(),
       };
-      if (patch.processing_state && patch.processing_state.endsWith('_failed')) {
-        finalFailureState = patch.processing_state;
-      }
       return { ...storedJob };
     },
     async deleteJob() {},
@@ -113,46 +99,23 @@ test('kick classifies assignment errors as assignment_failed after analysis succ
   globalThis.TabOutArticleAnalysis = {
     async analyzeArticle() {
       return {
-        summaryShort: 'Summary',
-        recommendedAction: 'Read this',
-        whyRecommended: 'Fresh context',
-        subAngles: [],
-        keywords: [],
-        readingQuestion: null,
-        contentType: 'article',
-        noveltyScore: 0.7,
-        duplicateCandidates: [],
+        labels: ['agent', 'pricing'],
+        priorityBucket: 'read_now',
+        shortReason: 'Useful for the current queue because pricing changed.',
+        readingTimeEstimate: 6,
       };
-    },
-  };
-
-  globalThis.TabOutTopicsRepo = {
-    async listTopics() {
-      return [];
-    },
-    async upsertTopic() {
-      throw Object.assign(new Error('assignment exploded'), { code: 'assignment_crash' });
-    },
-  };
-
-  globalThis.TabOutTopicEngine = {
-    matchTopic() {
-      return {
-        matchType: 'new',
-        topicId: null,
-      };
-    },
-    seedTopicFromArticle() {
-      return { id: 'topic-1', title: 'Topic' };
     },
   };
 
   await globalThis.TabOutJobsRunner.kick();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assertEqual(finalFailureState, 'assignment_failed');
-  assertEqual(article.processing_state, 'assignment_failed');
-  assertEqual(storedJob.processing_state, 'assignment_failed');
+  assertDeepEqual(article.labels, ['agent', 'pricing']);
+  assertEqual(article.priority_bucket, 'read_now');
+  assertEqual(article.short_reason, 'Useful for the current queue because pricing changed.');
+  assertEqual(article.reading_time_estimate, 6);
+  assertEqual(article.processing_state, 'ready');
+  assertEqual(storedJob.processing_state, 'ready');
 });
 
 test('kick closes the source tab after capture succeeds for background tabs', async () => {
@@ -170,16 +133,10 @@ test('kick closes the source tab after capture succeeds for background tabs', as
     source_ref: '99',
     close_source_tab_after_capture: true,
     markdown_content: null,
-    summary_short: null,
-    main_topic_label: null,
-    recommended_action: null,
-    why_recommended: null,
-    sub_angles: [],
-    keywords: [],
-    reading_question: null,
-    content_type: null,
-    novelty_score: null,
-    duplicate_candidates: [],
+    labels: [],
+    priority_bucket: null,
+    short_reason: null,
+    reading_time_estimate: null,
   };
   let removedTabId = null;
 
@@ -280,16 +237,10 @@ test('kick keeps the source tab open when capture succeeds on an active tab', as
     source_ref: '77',
     close_source_tab_after_capture: true,
     markdown_content: null,
-    summary_short: null,
-    main_topic_label: null,
-    recommended_action: null,
-    why_recommended: null,
-    sub_angles: [],
-    keywords: [],
-    reading_question: null,
-    content_type: null,
-    novelty_score: null,
-    duplicate_candidates: [],
+    labels: [],
+    priority_bucket: null,
+    short_reason: null,
+    reading_time_estimate: null,
   };
   let removedTabId = null;
 
