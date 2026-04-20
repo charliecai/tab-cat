@@ -172,7 +172,10 @@ test('reading inbox filters render all unread and read options', () => {
         { value: 'active', count: 2 },
         { value: 'read', count: 1 },
       ],
-      labels: [],
+      labels: [
+        { value: 'agent', count: 3 },
+        { value: 'pricing', count: 2 },
+      ],
       sources: [],
       times: [],
       statuses: [],
@@ -199,6 +202,14 @@ test('reading inbox filters render all unread and read options', () => {
     `${globalThis.TabOutI18n.t('reading.lifecycle.read')} 1`,
   ]);
   assertEqual(document.querySelector('.reading-filter-stack').firstElementChild.tagName, 'LABEL');
+  assertEqual(
+    document.querySelector('[data-filter-group="lifecycle"]').classList.contains('reading-filter-options-inline'),
+    true
+  );
+  assertEqual(
+    document.querySelector('[data-filter-group="labels"]').classList.contains('reading-filter-options-wrap'),
+    true
+  );
 });
 
 test('reading inbox status filter is single-select and matches one token at a time', () => {
@@ -253,6 +264,58 @@ test('reading inbox status filter is single-select and matches one token at a ti
 
   assertDeepEqual(readyVisible.map((article) => article.id), ['ready-1']);
   assertDeepEqual(failedVisible.map((article) => article.id), ['failed-1']);
+});
+
+test('reading inbox derives label filters ordered by article count descending', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const filters = helpers.deriveReadingFilters([
+    {
+      id: 'label-1',
+      title: 'Agent pricing changes',
+      url: 'https://example.com/pricing',
+      site_name: 'example.com',
+      labels: ['agent', 'pricing'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
+      id: 'label-2',
+      title: 'Agent notes',
+      url: 'https://example.com/agent',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'skim_later',
+      processing_state: 'ready',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-19T02:00:00.000Z',
+      last_saved_at: '2026-04-19T02:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
+      id: 'label-3',
+      title: 'Design roundup',
+      url: 'https://example.com/design',
+      site_name: 'example.com',
+      labels: ['design'],
+      priority_bucket: 'worth_keeping',
+      processing_state: 'ready',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-18T02:00:00.000Z',
+      last_saved_at: '2026-04-18T02:00:00.000Z',
+      last_opened_at: null,
+    },
+  ]);
+
+  assertDeepEqual(
+    filters.labels.map((entry) => `${entry.value}:${entry.count}`),
+    ['agent:2', 'design:1', 'pricing:1']
+  );
 });
 
 test('reading inbox retry rerenders queued state before background kick resolves', async () => {
@@ -399,6 +462,92 @@ test('reading inbox live search preserves the existing input node and focus', as
   assertEqual(document.activeElement, originalInput);
   assertEqual(currentInput.value, 'pricing');
   assertEqual(document.getElementById('readingResultsGroups').textContent.includes('Agent pricing changes'), true);
+});
+
+test('reading inbox label filters toggle the labels state and rerender filtered results', async () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const articles = [
+    {
+      id: 'tag-1',
+      title: 'Agent pricing changes',
+      url: 'https://example.com/pricing',
+      site_name: 'example.com',
+      labels: ['agent', 'pricing'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      short_reason: 'Useful',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
+      id: 'tag-2',
+      title: 'Design notes',
+      url: 'https://design.example.com/notes',
+      site_name: 'design.example.com',
+      labels: ['design'],
+      priority_bucket: 'skim_later',
+      processing_state: 'ready',
+      short_reason: 'Useful',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-19T02:00:00.000Z',
+      last_saved_at: '2026-04-19T02:00:00.000Z',
+      last_opened_at: null,
+    },
+  ];
+
+  globalThis.TabOutArticlesRepo = {
+    async countActiveInboxItems() {
+      return articles.length;
+    },
+    async listArticles() {
+      return articles.slice();
+    },
+  };
+  globalThis.TabOutJobsRepo = {
+    async listJobs() {
+      return [];
+    },
+  };
+  globalThis.TabOutSettingsRepo = {
+    async getAiStatus() {
+      return { host: '', state: 'not_configured', last_error: null };
+    },
+  };
+
+  document.body.innerHTML = `
+    <div id="readingInboxBadge"></div>
+    <div id="readingQueueCount"></div>
+    <div id="readingFiltersBody">${helpers.renderReadingFiltersHtml(helpers.deriveReadingFilters(articles), {
+      lifecycle: 'active',
+      search: '',
+      labels: [],
+      source: '',
+      time: '',
+      status: '',
+    })}</div>
+    <div id="readingResultsSummary"></div>
+    <div id="readingResultsGroups">${helpers.renderReadingResultGroupsHtml(helpers.groupReadingResultsByPriority(articles))}</div>
+    <div id="readingResultsEmpty"></div>
+    <div id="debugList"></div>
+  `;
+
+  document
+    .querySelector('[data-filter-kind="label"][data-filter-value="agent"]')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  assertEqual(document.getElementById('readingResultsGroups').textContent.includes('Agent pricing changes'), true);
+  assertEqual(document.getElementById('readingResultsGroups').textContent.includes('Design notes'), false);
+  assertEqual(
+    Array.from(document.querySelectorAll('.reading-active-filter')).some((node) => node.textContent.trim() === 'agent'),
+    true
+  );
+  assertEqual(document.querySelector('[data-filter-kind="label"][data-filter-value="agent"]').classList.contains('active'), true);
 });
 
 test('reading inbox delete confirmation becomes visible when a card enters confirming state', () => {

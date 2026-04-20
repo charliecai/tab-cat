@@ -1268,6 +1268,10 @@ function uniqueSorted(values) {
   );
 }
 
+function normalizeReadingFilterKind(kind) {
+  return kind === 'label' ? 'labels' : kind;
+}
+
 function deriveReadingFilters(articles) {
   const libraryArticles = (articles || []).filter(isReadingLibraryArticle);
   return {
@@ -1282,10 +1286,12 @@ function deriveReadingFilters(articles) {
         count: libraryArticles.filter((article) => article.lifecycle_state === 'read').length,
       },
     ],
-    labels: uniqueSorted(libraryArticles.flatMap((article) => article.labels || [])).map((value) => ({
-      value,
-      count: libraryArticles.filter((article) => (article.labels || []).includes(value)).length,
-    })),
+    labels: uniqueSorted(libraryArticles.flatMap((article) => article.labels || []))
+      .map((value) => ({
+        value,
+        count: libraryArticles.filter((article) => (article.labels || []).includes(value)).length,
+      }))
+      .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)),
     sources: uniqueSorted(libraryArticles.map(getArticleSource)).map((value) => ({
       value,
       count: libraryArticles.filter((article) => getArticleSource(article) === value).length,
@@ -1401,13 +1407,13 @@ function renderReadingFiltersHtml(filters, filterState) {
       </label>
       <section class="reading-filter-section">
         <h3>${t('reading.filters.lifecycle')}</h3>
-        <div class="reading-filter-options">
+        <div class="reading-filter-options reading-filter-options-inline" data-filter-group="lifecycle">
           ${filters.lifecycle.map((entry) => renderFilterOption('lifecycle', entry.value, t(`reading.lifecycle.${entry.value}`), entry.count, activeLifecycle === entry.value)).join('')}
         </div>
       </section>
       <section class="reading-filter-section">
         <h3>${t('reading.filters.labels')}</h3>
-        <div class="reading-filter-options">
+        <div class="reading-filter-options reading-filter-options-wrap" data-filter-group="labels">
           ${filters.labels.map((entry) => renderFilterOption('label', entry.value, entry.value, entry.count, filterState.labels.includes(entry.value))).join('') || `<p class="reading-filter-empty">${t('reading.filters.empty')}</p>`}
         </div>
       </section>
@@ -3377,13 +3383,14 @@ document.addEventListener('click', async (e) => {
     const value = actionEl.dataset.filterValue;
     if (!kind || !value) return;
     if (kind === 'label') {
-      const current = new Set(readingFilterState[kind]);
+      const stateKey = normalizeReadingFilterKind(kind);
+      const current = new Set(readingFilterState[stateKey] || []);
       if (current.has(value)) {
         current.delete(value);
       } else {
         current.add(value);
       }
-      readingFilterState = { ...readingFilterState, [kind]: Array.from(current) };
+      readingFilterState = { ...readingFilterState, [stateKey]: Array.from(current) };
     } else {
       readingFilterState = {
         ...readingFilterState,
