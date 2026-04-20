@@ -28,4 +28,6 @@ test('articles repo createArticleRecord defaults queue metadata fields for filte
   assertDeepEqual(record.labels, []);
   assertEqual(record.priority_bucket, null);
   assertEqual(record.short_reason, null);
+  assertEqual(record.analysis_source_text, null);
+  assertEqual(record.capture_source, null);
 });

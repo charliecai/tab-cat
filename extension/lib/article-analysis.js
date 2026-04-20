@@ -19,7 +19,7 @@
     };
   }
 
-  function buildAnalysisPrompt(markdown, metadata, settings) {
+  function buildAnalysisPrompt(sourceText, metadata, settings) {
     const effectiveLanguage =
       globalThis.TabOutI18n &&
       typeof globalThis.TabOutI18n.resolveEffectiveLanguage === 'function'
@@ -40,16 +40,16 @@
       `Title: ${metadata.title || ''}`,
       `URL: ${metadata.url || ''}`,
       '',
-      markdown.slice(0, 12000),
+      String(sourceText || '').slice(0, 4000),
     ].join('\n');
   }
 
-  async function analyzeArticle(markdown, metadata, settings) {
+  async function analyzeArticle(sourceText, metadata, settings) {
     const payload = await globalThis.TabOutAiClient.sendChatCompletion(settings, {
       messages: [
         {
           role: 'user',
-          content: buildAnalysisPrompt(markdown, metadata, settings),
+          content: buildAnalysisPrompt(sourceText, metadata, settings),
         },
       ],
       max_tokens: 700,

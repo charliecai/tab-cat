@@ -62,3 +62,48 @@ test('captureArticle fails explicitly when the source tab closes while waiting f
 
   assertEqual(capturedError.code, 'source_tab_closed_before_payload');
 });
+
+test('captureArticle requests lightweight capture payloads by default', async () => {
+  let receivedMessage = null;
+
+  globalThis.chrome = {
+    tabs: {
+      get: async () => ({ id: 42, status: 'complete', discarded: false }),
+      sendMessage: async (_tabId, message) => {
+        receivedMessage = message;
+        return {
+          ok: true,
+          payload: {
+            title: 'Example article',
+            excerpt: 'Lead paragraph',
+            analysis_source_text: 'Example article\n\nLead paragraph',
+            word_count: 120,
+            language: 'en',
+            author: 'Author',
+            lead_image_url: 'https://example.com/cover.png',
+          },
+        };
+      },
+      reload: async () => {},
+      onUpdated: {
+        addListener() {},
+        removeListener() {},
+      },
+      onRemoved: {
+        addListener() {},
+        removeListener() {},
+      },
+    },
+    scripting: {
+      executeScript: async () => {},
+    },
+  };
+
+  const result = await globalThis.TabOutCapture.captureArticle({
+    source_ref: '42',
+    url: 'https://example.com/article',
+  });
+
+  assertEqual(receivedMessage.mode, 'light');
+  assertEqual(result.analysis_source_text, 'Example article\n\nLead paragraph');
+});

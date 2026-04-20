@@ -118,6 +118,100 @@ test('kick stores queue metadata and marks the article ready after analysis succ
   assertEqual(storedJob.processing_state, 'ready');
 });
 
+test('kick prefers analysis_source_text over markdown_content for lightweight analysis', async () => {
+  let storedJob = {
+    id: 'job-light-1',
+    article_id: 'article-light-1',
+    processing_state: 'captured',
+    attempt_count: 0,
+    updated_at: new Date(0).toISOString(),
+  };
+  const article = {
+    id: 'article-light-1',
+    lifecycle_state: 'active',
+    processing_state: 'captured',
+    markdown_content: '# Legacy full text',
+    analysis_source_text: 'Lightweight analysis text',
+    labels: [],
+    priority_bucket: null,
+    short_reason: null,
+    reading_time_estimate: null,
+  };
+  let analyzedInput = null;
+
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: async () => ({}),
+    },
+  };
+
+  globalThis.TabOutArticlesRepo = {
+    async getArticleById() {
+      return article;
+    },
+    async updateArticleProcessingState(_articleId, processingState) {
+      article.processing_state = processingState;
+      return article;
+    },
+    async updateArticle(_articleId, patch) {
+      Object.assign(article, patch);
+      return article;
+    },
+  };
+
+  globalThis.TabOutJobsRepo = {
+    async listJobs() {
+      return [{ ...storedJob }];
+    },
+    async getJobByArticleId() {
+      return { ...storedJob };
+    },
+    async updateJob(_jobId, patch) {
+      storedJob = {
+        ...storedJob,
+        ...patch,
+        updated_at: new Date().toISOString(),
+      };
+      return { ...storedJob };
+    },
+    async deleteJob() {},
+  };
+
+  globalThis.TabOutSettingsRepo = {
+    async getAiSettings() {
+      return {
+        base_url: 'https://api.example.com/v1',
+        api_key: 'secret',
+        model_id: 'model-x',
+      };
+    },
+  };
+
+  globalThis.TabOutAiClient = {
+    validateAiSettings() {
+      return { isValid: true, errors: [] };
+    },
+  };
+
+  globalThis.TabOutArticleAnalysis = {
+    async analyzeArticle(input) {
+      analyzedInput = input;
+      return {
+        labels: ['agent'],
+        priorityBucket: 'read_now',
+        shortReason: 'Useful right now.',
+        readingTimeEstimate: 4,
+      };
+    },
+  };
+
+  await globalThis.TabOutJobsRunner.kick();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEqual(analyzedInput, 'Lightweight analysis text');
+  assertEqual(article.processing_state, 'ready');
+});
+
 test('kick closes the source tab after capture succeeds for background tabs', async () => {
   let storedJob = {
     id: 'job-close-bg',

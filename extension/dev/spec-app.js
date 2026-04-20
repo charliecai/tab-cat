@@ -101,6 +101,154 @@ test('reading inbox marks legacy articles without new metadata for backfill', ()
   );
 });
 
+test('reading inbox preheat only picks lightweight reading candidates and caps them at five', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const candidates = helpers.pickPreheatCandidates([
+    { id: 1, url: 'https://example.com/blog/one', title: 'A very long article title for one' },
+    { id: 2, url: 'https://mail.google.com/', title: 'Inbox' },
+    { id: 3, url: 'chrome://settings', title: 'Settings' },
+    { id: 4, url: 'https://example.com/blog/two', title: 'A very long article title for two' },
+    { id: 5, url: 'https://example.com/blog/three', title: 'A very long article title for three' },
+    { id: 6, url: 'https://example.com/blog/four', title: 'A very long article title for four' },
+    { id: 7, url: 'https://example.com/blog/five', title: 'A very long article title for five' },
+    { id: 8, url: 'https://example.com/blog/six', title: 'A very long article title for six' },
+    { id: 9, url: 'file:///Users/charliec/Desktop/note.md', title: 'Draft note' },
+  ]);
+
+  assertDeepEqual(
+    candidates.map((tab) => tab.id),
+    [1, 4, 5, 6, 7]
+  );
+});
+
+test('reading inbox saveTabForLater reuses ready preheated payloads and queues analysis from captured state', async () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  helpers.clearPreheatEntries();
+  helpers.seedPreheatEntry({
+    tabId: 11,
+    url: 'https://example.com/blog/post',
+    status: 'ready',
+    capturedAt: '2026-04-20T05:00:00.000Z',
+    payload: {
+      title: 'Example post',
+      excerpt: 'Lead paragraph',
+      analysis_source_text: 'Example post\n\nLead paragraph',
+      word_count: 120,
+      language: 'en',
+      author: 'Author',
+      lead_image_url: 'https://example.com/cover.png',
+    },
+  });
+
+  let createdInput = null;
+  let updatedArticle = null;
+  let enqueuedJob = null;
+
+  globalThis.TabOutArticlesRepo = {
+    async findArticleByCanonicalUrl() {
+      return null;
+    },
+    async createQueuedArticle(input) {
+      createdInput = { ...input };
+      return {
+        id: 'article-prefetch-1',
+        lifecycle_state: 'active',
+        processing_state: 'queued',
+        ...input,
+      };
+    },
+    async updateArticle(_articleId, patch) {
+      updatedArticle = { ...patch };
+      return {
+        id: 'article-prefetch-1',
+        ...createdInput,
+        ...patch,
+      };
+    },
+  };
+
+  globalThis.TabOutJobsRepo = {
+    async enqueueJob(input) {
+      enqueuedJob = { ...input };
+      return input;
+    },
+  };
+
+  globalThis.TabOutCapture = {
+    async captureArticle() {
+      throw new Error('save flow should not capture again when preheat is ready');
+    },
+  };
+
+  const result = await helpers.saveTabForLater({
+    id: 11,
+    url: 'https://example.com/blog/post',
+    title: 'Example post',
+  });
+
+  assertEqual(result.shouldCloseNow, true);
+  assertEqual(enqueuedJob.processing_state, 'captured');
+  assertEqual(updatedArticle.capture_source, 'prefetch-hit');
+  assertEqual(updatedArticle.analysis_source_text, 'Example post\n\nLead paragraph');
+});
+
+test('reading inbox debug items include preheat failures and capture source metadata', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const items = helpers.buildDebugItems({
+    articles: [
+      {
+        id: 'article-1',
+        title: 'Saved article',
+        url: 'https://example.com/post',
+        lifecycle_state: 'active',
+        processing_state: 'ready',
+        capture_source: 'prefetch-hit',
+        analysis_source_text: 'Saved article\n\nLead paragraph',
+        last_error_code: null,
+        last_error_message: null,
+        updated_at: '2026-04-20T06:00:00.000Z',
+      },
+    ],
+    jobs: [
+      {
+        article_id: 'article-1',
+        attempt_count: 2,
+        next_retry_at: null,
+        last_error_code: null,
+        last_error_message: null,
+      },
+    ],
+    aiStatus: {
+      host: 'api.example.com',
+    },
+    preheatEntries: [
+      {
+        key: 'preheat:1',
+        url: 'https://example.com/pending',
+        status: 'failed',
+        capturedAt: '2026-04-20T07:00:00.000Z',
+        errorCode: 'source_tab_loading',
+        errorMessage: 'Timed out waiting for a stable page',
+        payload: null,
+      },
+    ],
+  });
+
+  const preheatItem = items.find((item) => item.kind === 'preheat');
+  const articleItem = items.find((item) => item.kind === 'article');
+
+  assertEqual(preheatItem.stage, 'prefetch');
+  assertEqual(preheatItem.errorCode, 'source_tab_loading');
+  assertEqual(articleItem.source, 'prefetch-hit');
+  assertEqual(articleItem.textSize, 'Saved article\n\nLead paragraph'.length);
+});
+
 function waitForTick() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
 }

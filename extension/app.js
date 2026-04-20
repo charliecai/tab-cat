@@ -43,6 +43,14 @@ let pinnedDragState = {
   originalOrder: [],
   blockClicksUntil: 0,
 };
+const LIGHTWEIGHT_PREHEAT_LIMIT = 5;
+const LIGHTWEIGHT_PREHEAT_CONCURRENCY = 1;
+const LIGHTWEIGHT_PREHEAT_TIMEOUT_MS = 4000;
+const LIGHTWEIGHT_PREHEAT_WAIT_MS = 350;
+const preheatEntries = new Map();
+let preheatQueue = [];
+let preheatInFlight = 0;
+let preheatKickScheduled = false;
 
 /**
  * fetchOpenTabs()
@@ -373,16 +381,19 @@ async function saveTabForLater(tab) {
   }
 
   const sourceRef = tab.id ? String(tab.id) : null;
+  const lightweightCapture = sourceRef ? await resolveLightweightCaptureForSave(tab) : { payload: null, source: 'save-fallback' };
 
   const existing = await articlesRepo.findArticleByCanonicalUrl(tab.url);
   if (existing) {
     const captureAlreadyCompleted = !['queued', 'capturing', 'capture_failed'].includes(existing.processing_state);
-    const shouldCloseAfterCapture = !captureAlreadyCompleted && Boolean(sourceRef);
+    const hasCapturedPayload = Boolean(lightweightCapture.payload && lightweightCapture.payload.analysis_source_text);
+    const shouldCloseAfterCapture = !captureAlreadyCompleted && Boolean(sourceRef) && !hasCapturedPayload;
     const refreshed = await articlesRepo.updateArticle(existing.id, {
       lifecycle_state: 'active',
       last_saved_at: new Date().toISOString(),
       source_ref: sourceRef || existing.source_ref || null,
       close_source_tab_after_capture: shouldCloseAfterCapture,
+      capture_source: hasCapturedPayload ? lightweightCapture.source : existing.capture_source || lightweightCapture.source || null,
     });
 
     const checkpointState = getRetryCheckpointState(existing.processing_state);
@@ -394,6 +405,28 @@ async function saveTabForLater(tab) {
         requeued: false,
         shouldCloseNow: captureAlreadyCompleted,
         shouldCloseAfterCapture,
+      };
+    }
+
+    if (hasCapturedPayload) {
+      const hydrated = await articlesRepo.updateArticle(
+        existing.id,
+        buildCapturedArticlePatch(tab, lightweightCapture.payload, lightweightCapture.source, {
+          lifecycle_state: 'active',
+          last_saved_at: new Date().toISOString(),
+          source_ref: sourceRef || existing.source_ref || null,
+        })
+      );
+      await jobsRepo.enqueueJob({
+        article_id: existing.id,
+        processing_state: 'captured',
+      });
+      return {
+        article: hydrated,
+        deduped: true,
+        requeued: true,
+        shouldCloseNow: Boolean(sourceRef),
+        shouldCloseAfterCapture: false,
       };
     }
 
@@ -427,8 +460,28 @@ async function saveTabForLater(tab) {
     url: tab.url,
     title: tab.title || tab.url,
     site_name: siteName,
-    close_source_tab_after_capture: Boolean(sourceRef),
+    close_source_tab_after_capture: Boolean(sourceRef) && !lightweightCapture.payload,
+    capture_source: lightweightCapture.source,
   });
+
+  if (lightweightCapture.payload && lightweightCapture.payload.analysis_source_text) {
+    const capturedArticle = await articlesRepo.updateArticle(
+      article.id,
+      buildCapturedArticlePatch(tab, lightweightCapture.payload, lightweightCapture.source)
+    );
+    await jobsRepo.enqueueJob({
+      article_id: article.id,
+      processing_state: 'captured',
+    });
+
+    return {
+      article: capturedArticle,
+      deduped: false,
+      requeued: true,
+      shouldCloseNow: Boolean(sourceRef),
+      shouldCloseAfterCapture: false,
+    };
+  }
 
   await jobsRepo.enqueueJob({
     article_id: article.id,
@@ -865,6 +918,169 @@ function getSiteNameFromUrl(url) {
   }
 }
 
+function normalizeCaptureUrl(url) {
+  if (globalThis.TabOutArticlesRepo && typeof globalThis.TabOutArticlesRepo.normalizeUrl === 'function') {
+    return globalThis.TabOutArticlesRepo.normalizeUrl(url);
+  }
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return url || '';
+  }
+}
+
+function getPreheatEntryKey(tabId, url) {
+  return `${Number(tabId) || 0}:${normalizeCaptureUrl(url)}`;
+}
+
+function clonePreheatEntry(entry) {
+  if (!entry) return null;
+  return {
+    key: entry.key,
+    tabId: entry.tabId,
+    url: entry.url,
+    status: entry.status,
+    capturedAt: entry.capturedAt || null,
+    payload: entry.payload ? { ...entry.payload } : null,
+    errorCode: entry.errorCode || null,
+    errorMessage: entry.errorMessage || null,
+  };
+}
+
+function upsertPreheatEntry(input) {
+  const key = input.key || getPreheatEntryKey(input.tabId, input.url);
+  const next = {
+    key,
+    tabId: input.tabId,
+    url: input.url,
+    status: input.status || 'pending',
+    capturedAt: input.capturedAt || null,
+    payload: input.payload ? { ...input.payload } : null,
+    errorCode: input.errorCode || null,
+    errorMessage: input.errorMessage || null,
+    promise: input.promise || null,
+  };
+  preheatEntries.set(key, next);
+  return next;
+}
+
+function clearPreheatEntries() {
+  preheatEntries.clear();
+  preheatQueue = [];
+  preheatInFlight = 0;
+  preheatKickScheduled = false;
+}
+
+function seedPreheatEntry(input) {
+  return clonePreheatEntry(upsertPreheatEntry(input));
+}
+
+function getPreheatEntriesSnapshot() {
+  return Array.from(preheatEntries.values()).map(clonePreheatEntry);
+}
+
+function isReadyPreheatEntry(entry) {
+  return Boolean(entry && entry.status === 'ready' && entry.payload && entry.payload.analysis_source_text);
+}
+
+function getCaptureSourceLabel(captureSource) {
+  switch (captureSource) {
+    case 'prefetch-hit':
+      return t('debug.sourcePrefetchHit');
+    case 'save-fallback':
+      return t('debug.sourceSaveFallback');
+    case 'retry':
+      return t('debug.sourceRetry');
+    default:
+      return t('debug.sourceUnknown');
+  }
+}
+
+function buildCapturedArticlePatch(tab, payload, captureSource, overrides = {}) {
+  return {
+    title: payload.title || tab.title || tab.url,
+    url: tab.url,
+    site_name: payload.site_name || getSiteNameFromUrl(tab.url),
+    analysis_source_text: payload.analysis_source_text || null,
+    excerpt: payload.excerpt || null,
+    word_count: payload.word_count || null,
+    language: payload.language || null,
+    author: payload.author || null,
+    lead_image_url: payload.lead_image_url || null,
+    capture_source: captureSource || null,
+    processing_state: 'captured',
+    close_source_tab_after_capture: false,
+    last_error_code: null,
+    last_error_message: null,
+    ...overrides,
+  };
+}
+
+async function awaitPreheatEntry(key, timeoutMs = LIGHTWEIGHT_PREHEAT_WAIT_MS) {
+  const entry = preheatEntries.get(key);
+  if (!entry || !entry.promise) return clonePreheatEntry(entry);
+  try {
+    await Promise.race([
+      entry.promise.catch(() => null),
+      new Promise((resolve) => window.setTimeout(resolve, timeoutMs)),
+    ]);
+  } catch {
+    // Ignore and fall through to the latest cached state.
+  }
+  return clonePreheatEntry(preheatEntries.get(key));
+}
+
+async function resolveLightweightCaptureForSave(tab) {
+  if (!tab || !tab.id || !globalThis.TabOutCapture) {
+    return { payload: null, source: 'save-fallback' };
+  }
+
+  const key = getPreheatEntryKey(tab.id, tab.url);
+  const existing = preheatEntries.get(key);
+  if (isReadyPreheatEntry(existing)) {
+    return { payload: { ...existing.payload }, source: 'prefetch-hit' };
+  }
+
+  if (existing && existing.status === 'pending') {
+    const settled = await awaitPreheatEntry(key);
+    if (isReadyPreheatEntry(settled)) {
+      return { payload: { ...settled.payload }, source: 'prefetch-hit' };
+    }
+  }
+
+  try {
+    const payload = await globalThis.TabOutCapture.captureTab(
+      { id: tab.id, url: tab.url },
+      { mode: 'light', timeoutMs: LIGHTWEIGHT_PREHEAT_TIMEOUT_MS }
+    );
+    upsertPreheatEntry({
+      key,
+      tabId: tab.id,
+      url: tab.url,
+      status: 'ready',
+      capturedAt: new Date().toISOString(),
+      payload,
+      errorCode: null,
+      errorMessage: null,
+      promise: null,
+    });
+    return { payload, source: 'save-fallback' };
+  } catch (error) {
+    if (existing) {
+      upsertPreheatEntry({
+        ...existing,
+        status: 'failed',
+        errorCode: error && error.code ? error.code : 'unknown_error',
+        errorMessage: error && error.message ? error.message : String(error),
+        promise: null,
+      });
+    }
+    return { payload: null, source: 'save-fallback' };
+  }
+}
+
 function normalizePinnedEntryUrl(rawUrl) {
   const candidate = String(rawUrl || '').trim();
   if (!candidate) return '';
@@ -1019,7 +1235,7 @@ async function ensureReadingMetadataBackfill(articles) {
     const existingJob = await jobsRepo.getJobByArticleId(article.id);
     if (existingJob && existingJob.processing_state !== 'ready') continue;
 
-    const checkpointState = article.markdown_content ? 'captured' : 'queued';
+    const checkpointState = article.analysis_source_text || article.markdown_content ? 'captured' : 'queued';
     await articlesRepo.updateArticleProcessingState(article.id, checkpointState);
     article.processing_state = checkpointState;
     await jobsRepo.enqueueJob({
@@ -1285,6 +1501,122 @@ function isUnsupportedSaveUrl(url) {
     url.startsWith('https://chromewebstore.google.com') ||
     url.startsWith('https://chrome.google.com/webstore')
   );
+}
+
+function pickPreheatCandidates(tabs, limit = LIGHTWEIGHT_PREHEAT_LIMIT) {
+  return (tabs || [])
+    .filter((tab) => {
+      if (!tab || !tab.id || isUnsupportedSaveUrl(tab.url)) return false;
+      if (tab.isTabOut) return false;
+      if (!isLikelyReadingTab(tab)) return false;
+      if (globalThis.TabOutCapture && typeof globalThis.TabOutCapture.isUnsupportedCaptureUrl === 'function') {
+        return !globalThis.TabOutCapture.isUnsupportedCaptureUrl(tab.url);
+      }
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function syncPreheatEntriesWithTabs(tabs) {
+  const liveKeys = new Set((tabs || []).map((tab) => getPreheatEntryKey(tab.id, tab.url)));
+  preheatEntries.forEach((entry, key) => {
+    if (!liveKeys.has(key) && entry.status !== 'stale') {
+      preheatEntries.set(key, {
+        ...entry,
+        status: 'stale',
+        promise: null,
+      });
+    }
+  });
+}
+
+async function runPreheatForTab(tab) {
+  const key = getPreheatEntryKey(tab.id, tab.url);
+  const pending = upsertPreheatEntry({
+    tabId: tab.id,
+    url: tab.url,
+    status: 'pending',
+    errorCode: null,
+    errorMessage: null,
+  });
+
+  const promise = globalThis.TabOutCapture.captureTab(
+    { id: tab.id, url: tab.url },
+    { mode: 'light', timeoutMs: LIGHTWEIGHT_PREHEAT_TIMEOUT_MS }
+  )
+    .then((payload) => {
+      upsertPreheatEntry({
+        ...pending,
+        key,
+        status: 'ready',
+        capturedAt: new Date().toISOString(),
+        payload,
+        errorCode: null,
+        errorMessage: null,
+        promise: null,
+      });
+    })
+    .catch((error) => {
+      upsertPreheatEntry({
+        ...pending,
+        key,
+        status: 'failed',
+        capturedAt: new Date().toISOString(),
+        payload: null,
+        errorCode: error && error.code ? error.code : 'unknown_error',
+        errorMessage: error && error.message ? error.message : String(error),
+        promise: null,
+      });
+    });
+
+  upsertPreheatEntry({
+    ...pending,
+    key,
+    promise,
+  });
+
+  await promise;
+}
+
+async function pumpPreheatQueue() {
+  if (preheatInFlight >= LIGHTWEIGHT_PREHEAT_CONCURRENCY || preheatQueue.length === 0) return;
+  if (!globalThis.TabOutCapture || typeof globalThis.TabOutCapture.captureTab !== 'function') return;
+
+  const nextTab = preheatQueue.shift();
+  preheatInFlight += 1;
+  try {
+    await runPreheatForTab(nextTab);
+  } finally {
+    preheatInFlight -= 1;
+    if (preheatQueue.length > 0) {
+      await pumpPreheatQueue();
+    }
+  }
+}
+
+function kickPreheatQueue() {
+  if (preheatKickScheduled) return;
+  preheatKickScheduled = true;
+
+  const schedule = typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
+    ? window.requestIdleCallback.bind(window)
+    : (callback) => window.setTimeout(callback, 0);
+
+  schedule(async () => {
+    preheatKickScheduled = false;
+    await pumpPreheatQueue();
+  });
+}
+
+function scheduleLightweightPreheat(tabs) {
+  syncPreheatEntriesWithTabs(tabs);
+  const nextCandidates = pickPreheatCandidates(tabs).filter((tab) => {
+    const entry = preheatEntries.get(getPreheatEntryKey(tab.id, tab.url));
+    return !entry || entry.status === 'failed';
+  });
+  if (nextCandidates.length === 0) return;
+  preheatQueue = nextCandidates;
+  kickPreheatQueue();
 }
 
 
@@ -2045,6 +2377,91 @@ async function importBackupFile(file) {
   return { canceled: false };
 }
 
+function getDebugStageLabel(item) {
+  if (item.kind === 'preheat') {
+    return t('debug.stagePrefetch');
+  }
+  if (item.processing_state === 'ready') {
+    return t('processing.ready');
+  }
+  if (item.processing_state === 'analyzing') {
+    return t('processing.analyzing');
+  }
+  if (['analysis_failed', 'capture_failed'].includes(item.processing_state)) {
+    return t(`processing.${item.processing_state}`);
+  }
+  return ['captured', 'capturing', 'queued'].includes(item.processing_state)
+    ? t('processing.capturing')
+    : t('processing.pending');
+}
+
+function buildDebugItems({ articles, jobs, aiStatus, preheatEntries: entries }) {
+  const hostText = (aiStatus && aiStatus.host) || t('debug.noAiHost');
+  const articleItems = (articles || []).map((article) => {
+    const job = (jobs || []).find((item) => item.article_id === article.id) || null;
+    const errorMessage = article.last_error_message || job?.last_error_message || t('debug.noRecentError');
+    const errorCode = article.last_error_code || job?.last_error_code || null;
+    const meta = [
+      getDebugStageLabel(article),
+      article.lifecycle_state === 'read' ? t('lifecycle.read') : t('lifecycle.active'),
+      hostText,
+      getCaptureSourceLabel(article.capture_source),
+      job && job.attempt_count ? t('debug.attemptCount', { count: job.attempt_count }) : '',
+      job && job.next_retry_at ? t('debug.nextRetryIn', { time: timeAgo(job.next_retry_at) }) : '',
+      t('debug.textSize', { count: String(article.analysis_source_text || article.markdown_content || '').length }),
+    ].filter(Boolean);
+    return {
+      kind: 'article',
+      key: article.id,
+      title: article.title || article.url,
+      stage: article.processing_state === 'ready'
+        ? 'ready'
+        : ['analysis_failed', 'capture_failed'].includes(article.processing_state)
+          ? 'failed'
+          : article.processing_state === 'analyzing'
+            ? 'analyze'
+            : 'capture',
+      source: article.capture_source || null,
+      textSize: String(article.analysis_source_text || article.markdown_content || '').length,
+      errorCode,
+      errorMessage,
+      updatedAt: article.updated_at || article.last_saved_at || article.saved_at || null,
+      meta,
+      retryable: ['capture_failed', 'analysis_failed'].includes(article.processing_state),
+      articleId: article.id,
+    };
+  });
+  const preheatItems = (entries || [])
+    .filter((entry) => entry && entry.status !== 'stale')
+    .map((entry) => {
+      const payload = entry.payload || null;
+      const textSize = String(payload && payload.analysis_source_text ? payload.analysis_source_text : '').length;
+      return {
+        kind: 'preheat',
+        key: entry.key,
+        title: payload?.title || entry.url,
+        stage: 'prefetch',
+        source: 'prefetch',
+        textSize,
+        errorCode: entry.errorCode || null,
+        errorMessage: entry.errorMessage || t('debug.noRecentError'),
+        updatedAt: entry.capturedAt || null,
+        meta: [
+          getDebugStageLabel({ kind: 'preheat' }),
+          hostText,
+          t('debug.textSize', { count: textSize }),
+        ],
+        retryable: false,
+        articleId: null,
+      };
+    });
+
+  return articleItems
+    .concat(preheatItems)
+    .sort((left, right) => new Date(right.updatedAt || 0).getTime() - new Date(left.updatedAt || 0).getTime())
+    .slice(0, 6);
+}
+
 async function renderDebugSurface() {
   const list = document.getElementById('debugList');
   if (!list || !globalThis.TabOutArticlesRepo || !globalThis.TabOutJobsRepo || !globalThis.TabOutSettingsRepo) return;
@@ -2055,27 +2472,21 @@ async function renderDebugSurface() {
     globalThis.TabOutSettingsRepo.getAiStatus(),
   ]);
 
-  const rows = articles
-    .slice()
-    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
-    .slice(0, 6)
-    .map((article) => {
-      const job = jobs.find((item) => item.article_id === article.id);
-      const errorText = article.last_error_message || job?.last_error_message || t('debug.noRecentError');
-      const hostText = aiStatus.host || t('debug.noAiHost');
-      const analyzedAt = article.last_analyzed_at
-        ? t('debug.analyzedAgo', { time: timeAgo(article.last_analyzed_at) })
-        : '';
-      const lifecycleLabel =
-        article.lifecycle_state === 'read' ? t('lifecycle.read') : t('lifecycle.active');
-      const retryAction = ['capture_failed', 'analysis_failed'].includes(article.processing_state)
-        ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
+  const rows = buildDebugItems({
+    articles,
+    jobs,
+    aiStatus,
+    preheatEntries: getPreheatEntriesSnapshot(),
+  })
+    .map((item) => {
+      const retryAction = item.retryable
+        ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${item.articleId}">${t('actions.retry')}</button>`
         : '';
       return `
         <div class="debug-item">
-          <h4>${article.title || article.url}</h4>
-          <p>${getProcessingLabel(article.processing_state)} · ${lifecycleLabel} · ${hostText}${analyzedAt}</p>
-          <p>${errorText}</p>
+          <h4>${item.title}</h4>
+          <p>${item.meta.join(' · ')}</p>
+          <p>${item.errorCode ? `${t('debug.errorCode', { code: item.errorCode })} · ` : ''}${item.errorMessage}</p>
           ${retryAction ? `<div class="debug-item-actions">${retryAction}</div>` : ''}
         </div>
       `;
@@ -2382,6 +2793,7 @@ async function renderStaticDashboard() {
 
   // --- Render pinned + reading inbox surfaces ---
   await Promise.all([renderInboxSurfaces(), loadSettingsSurface()]);
+  scheduleLightweightPreheat(currentTabs);
 }
 
 async function renderDashboard() {
@@ -2885,7 +3297,12 @@ document.addEventListener('click', async (e) => {
     const article = await globalThis.TabOutArticlesRepo.getArticleById(articleId);
     if (!article) return;
     const checkpointState = getRetryCheckpointState(article.processing_state);
-    await globalThis.TabOutArticlesRepo.updateArticleProcessingState(articleId, checkpointState);
+    await globalThis.TabOutArticlesRepo.updateArticle(articleId, {
+      processing_state: checkpointState,
+      capture_source: 'retry',
+      last_error_code: null,
+      last_error_message: null,
+    });
     await globalThis.TabOutJobsRepo.enqueueJob({
       article_id: articleId,
       processing_state: checkpointState,
@@ -3191,6 +3608,12 @@ globalThis.TabOutReadingInbox = {
   renderReadingResultCard,
   renderReadingResultGroupsHtml,
   renderReadingResultsSummaryHtml,
+  pickPreheatCandidates,
+  saveTabForLater,
+  buildDebugItems,
+  clearPreheatEntries,
+  seedPreheatEntry,
+  getPreheatEntriesSnapshot,
 };
 
 if (!globalThis.__TAB_OUT_SKIP_BOOT__) {

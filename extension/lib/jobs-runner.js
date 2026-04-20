@@ -111,12 +111,13 @@
 
     const captureResult = await globalThis.TabOutCapture.captureArticle(article);
     const nextArticle = await globalThis.TabOutArticlesRepo.updateArticle(article.id, {
-      markdown_content: captureResult.markdown,
+      analysis_source_text: captureResult.analysis_source_text || null,
       excerpt: captureResult.excerpt,
       word_count: captureResult.word_count,
       language: captureResult.language,
       author: captureResult.author,
       lead_image_url: captureResult.lead_image_url,
+      site_name: captureResult.site_name || article.site_name || '',
       processing_state: 'captured',
       last_error_code: null,
       last_error_message: null,
@@ -147,7 +148,11 @@
       throw error;
     }
 
-    const analysis = await globalThis.TabOutArticleAnalysis.analyzeArticle(article.markdown_content || '', article, settings);
+    const analysis = await globalThis.TabOutArticleAnalysis.analyzeArticle(
+      article.analysis_source_text || article.markdown_content || '',
+      article,
+      settings
+    );
     const nextArticle = await globalThis.TabOutArticlesRepo.updateArticle(article.id, {
       labels: analysis.labels,
       priority_bucket: analysis.priorityBucket,
