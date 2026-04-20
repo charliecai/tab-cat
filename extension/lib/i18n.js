@@ -43,6 +43,11 @@
           title: 'Language',
           label: 'Display and AI language',
           help: 'One setting controls UI copy and AI outputs for new analysis runs.',
+          options: {
+            auto: 'Follow browser',
+            en: 'English',
+            zhCn: 'Simplified Chinese',
+          },
         },
         backup: {
           title: 'Backup',
@@ -349,6 +354,11 @@
           title: '语言',
           label: '界面与 AI 语言',
           help: '一个设置同时控制界面文案与后续 AI 分析输出语言。',
+          options: {
+            auto: '跟随浏览器',
+            en: '英文',
+            zhCn: '简体中文',
+          },
         },
         backup: {
           title: '备份',

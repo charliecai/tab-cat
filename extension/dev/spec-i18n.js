@@ -15,3 +15,16 @@ test('TabOutI18n translates counts and falls back to English when a key is missi
   assertEqual(i18n.t('counts.domains', { count: 2 }), '2 个域名');
   assertEqual(i18n.t('spec.fallbackOnly'), 'English fallback only');
 });
+
+test('TabOutI18n exposes localized labels for language preference options', () => {
+  const i18n = globalThis.TabOutI18n;
+  if (!i18n) throw new Error('TabOutI18n missing');
+
+  i18n.setLanguagePreference('en', 'en-US');
+  assertEqual(i18n.t('settings.language.options.auto'), 'Follow browser');
+  assertEqual(i18n.t('settings.language.options.zhCn'), 'Simplified Chinese');
+
+  i18n.setLanguagePreference('zh-CN', 'zh-CN');
+  assertEqual(i18n.t('settings.language.options.auto'), '跟随浏览器');
+  assertEqual(i18n.t('settings.language.options.zhCn'), '简体中文');
+});
