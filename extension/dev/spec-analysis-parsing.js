@@ -1,21 +1,16 @@
-test('analyzeArticleResponse normalizes summary fields', () => {
+test('analyzeArticleResponse normalizes queue metadata fields', () => {
   const result = analyzeArticleResponse({
-    summary_short: 'Short summary',
-    main_topic_label: 'AI workflow',
-    recommended_action: 'read_now',
+    labels: ['agent', 'pricing'],
+    priority_bucket: 'read_now',
+    short_reason: 'Useful for the current queue because pricing changed.',
+    reading_time_estimate: 8,
   });
 
   assertDeepEqual(result, {
-    summaryShort: 'Short summary',
-    mainTopicLabel: 'AI workflow',
-    recommendedAction: 'read_now',
-    whyRecommended: null,
-    subAngles: [],
-    keywords: [],
-    readingQuestion: null,
-    contentType: null,
-    noveltyScore: null,
-    duplicateCandidates: [],
+    labels: ['agent', 'pricing'],
+    priorityBucket: 'read_now',
+    shortReason: 'Useful for the current queue because pricing changed.',
+    readingTimeEstimate: 8,
   });
 });
 
@@ -30,16 +25,10 @@ test('analyzeArticle requests output in the configured UI language while keeping
         {
           message: {
             content: JSON.stringify({
-              summary_short: '简短总结',
-              main_topic_label: '主题',
-              recommended_action: '继续阅读',
-              why_recommended: '原因',
-              sub_angles: [],
-              keywords: [],
-              reading_question: '问题',
-              content_type: 'article',
-              novelty_score: 0.5,
-              duplicate_candidates: [],
+              labels: ['代理', '定价'],
+              priority_bucket: 'read_now',
+              short_reason: '现在值得读，因为定价更新了。',
+              reading_time_estimate: 6,
             }),
           },
         },
@@ -62,5 +51,8 @@ test('analyzeArticle requests output in the configured UI language while keeping
   }
   if (!capturedPrompt.includes('Simplified Chinese')) {
     throw new Error('Prompt should require Simplified Chinese output when zh-CN is selected');
+  }
+  if (!capturedPrompt.includes('labels, priority_bucket, short_reason, reading_time_estimate')) {
+    throw new Error('Prompt should request queue metadata keys');
   }
 });

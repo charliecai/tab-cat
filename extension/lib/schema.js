@@ -2,7 +2,7 @@
   const namespace = (globalThis.TabOutSchema = globalThis.TabOutSchema || {});
 
   const DB_NAME = 'tab-out';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
 
   const STORES = {
     articles: 'articles',
@@ -39,10 +39,6 @@
     if (!articles.indexNames.contains('by_normalized_url')) {
       articles.createIndex('by_normalized_url', 'normalized_url');
     }
-    if (!articles.indexNames.contains('by_main_topic_id')) {
-      articles.createIndex('by_main_topic_id', 'main_topic_id');
-    }
-
     const topics = createStore(db, STORES.topics, { keyPath: 'id' });
     if (!topics.indexNames.contains('by_title')) {
       topics.createIndex('by_title', 'title');

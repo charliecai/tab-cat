@@ -56,7 +56,7 @@
     const jobs = await listJobs();
     const now = Date.now();
     return jobs.filter((job) => {
-      if (!['capturing', 'analyzing', 'assigning'].includes(job.processing_state)) {
+      if (!['capturing', 'analyzing'].includes(job.processing_state)) {
         return false;
       }
 
@@ -81,8 +81,6 @@
       let nextState = 'queued';
       if (job.processing_state === 'analyzing') {
         nextState = 'captured';
-      } else if (job.processing_state === 'assigning') {
-        nextState = 'analyzed';
       }
 
       const now = new Date().toISOString();

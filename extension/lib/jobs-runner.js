@@ -27,9 +27,6 @@
       if (input.processingState === 'analyzing') {
         return { processingState: 'captured', retryable: true };
       }
-      if (input.processingState === 'assigning') {
-        return { processingState: 'analyzed', retryable: true };
-      }
       return { processingState: 'queued', retryable: true };
     }
 
@@ -152,70 +149,21 @@
 
     const analysis = await globalThis.TabOutArticleAnalysis.analyzeArticle(article.markdown_content || '', article, settings);
     const nextArticle = await globalThis.TabOutArticlesRepo.updateArticle(article.id, {
-      summary_short: analysis.summaryShort,
-      main_topic_label: null,
-      recommended_action: analysis.recommendedAction,
-      why_recommended: analysis.whyRecommended,
-      sub_angles: analysis.subAngles,
-      keywords: analysis.keywords,
-      content_type: analysis.contentType,
-      novelty_score: analysis.noveltyScore,
-      duplicate_candidates: analysis.duplicateCandidates,
-      reading_question: analysis.readingQuestion,
-      processing_state: 'analyzed',
+      labels: analysis.labels,
+      priority_bucket: analysis.priorityBucket,
+      short_reason: analysis.shortReason,
+      reading_time_estimate: analysis.readingTimeEstimate,
+      processing_state: 'ready',
       last_error_code: null,
       last_error_message: null,
     });
     await globalThis.TabOutJobsRepo.updateJob(job.id, {
-      processing_state: 'analyzed',
+      processing_state: 'ready',
       last_error_code: null,
       last_error_message: null,
     });
     await notifyDataChanged();
     return { article: nextArticle, analysis };
-  }
-
-  async function runAssignmentStage(article, analysis, job) {
-    await globalThis.TabOutArticlesRepo.updateArticleProcessingState(article.id, 'assigning');
-    await globalThis.TabOutJobsRepo.updateJob(job.id, {
-      processing_state: 'assigning',
-      last_error_code: null,
-      last_error_message: null,
-    });
-
-    const topics = await globalThis.TabOutTopicsRepo.listTopics();
-    const match = globalThis.TabOutTopicEngine.matchTopic(analysis, topics);
-
-    let topicId = match.topicId;
-    let topic;
-    if (match.matchType === 'existing') {
-      topic = topics.find((item) => item.id === match.topicId);
-      topic = await globalThis.TabOutTopicsRepo.upsertTopic({
-        ...topic,
-        article_count: (topic.article_count || 0) + 1,
-        last_updated: new Date().toISOString(),
-      });
-      topicId = topic.id;
-    } else {
-      topic = await globalThis.TabOutTopicsRepo.upsertTopic(
-        globalThis.TabOutTopicEngine.seedTopicFromArticle(analysis)
-      );
-      topicId = topic.id;
-    }
-
-    await globalThis.TabOutArticlesRepo.updateArticle(article.id, {
-      main_topic_id: topicId,
-      main_topic_label: topic.title,
-      processing_state: 'assigned',
-      last_error_code: null,
-      last_error_message: null,
-    });
-    await globalThis.TabOutJobsRepo.updateJob(job.id, {
-      processing_state: 'assigned',
-      last_error_code: null,
-      last_error_message: null,
-    });
-    await notifyDataChanged();
   }
 
   async function failJob(article, job, processingState, error) {
@@ -263,31 +211,11 @@
       }
       if (['captured', 'analyzing', 'analysis_failed'].includes(job.processing_state)) {
         failureState = 'analysis_failed';
-        const result = await runAnalysisStage(article, job);
-        failureState = 'assignment_failed';
-        await runAssignmentStage(result.article, result.analysis, await globalThis.TabOutJobsRepo.getJobByArticleId(job.article_id));
-        return;
-      }
-      if (['analyzed', 'assigning', 'assignment_failed'].includes(job.processing_state)) {
-        failureState = 'assignment_failed';
-        const current = await globalThis.TabOutArticlesRepo.getArticleById(job.article_id);
-        const analysis = {
-          summaryShort: current.summary_short,
-          mainTopicLabel: current.main_topic_label,
-          recommendedAction: current.recommended_action,
-          whyRecommended: current.why_recommended,
-          subAngles: current.sub_angles || [],
-          keywords: current.keywords || [],
-          readingQuestion: current.reading_question || null,
-          contentType: current.content_type || null,
-          noveltyScore: current.novelty_score || null,
-          duplicateCandidates: current.duplicate_candidates || [],
-        };
-        await runAssignmentStage(current, analysis, job);
+        await runAnalysisStage(article, job);
         return;
       }
     } catch (error) {
-      await failJob(article, job, failureState || 'assignment_failed', error);
+      await failJob(article, job, failureState || 'analysis_failed', error);
     }
   }
 
@@ -296,9 +224,9 @@
     const now = Date.now();
     return jobs
       .filter((job) => {
-        if (['assigned'].includes(job.processing_state)) return false;
+        if (['ready'].includes(job.processing_state)) return false;
         if (job.next_retry_at && new Date(job.next_retry_at).getTime() > now) return false;
-        return ['queued', 'captured', 'analyzed', 'capture_failed', 'analysis_failed', 'assignment_failed'].includes(job.processing_state);
+        return ['queued', 'captured', 'capture_failed', 'analysis_failed'].includes(job.processing_state);
       })
       .sort((left, right) => new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime());
   }

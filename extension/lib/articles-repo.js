@@ -34,6 +34,9 @@
       lead_image_url: input.lead_image_url || null,
       word_count: input.word_count || null,
       language: input.language || null,
+      labels: input.labels || [],
+      priority_bucket: input.priority_bucket || null,
+      short_reason: input.short_reason || null,
       summary_short: input.summary_short || null,
       main_topic_id: input.main_topic_id || null,
       main_topic_label: input.main_topic_label || null,
@@ -163,7 +166,7 @@
       last_error_message: details && details.last_error_message ? details.last_error_message : null,
     };
 
-    if (processingState === 'analyzed' || processingState === 'assigned') {
+    if (processingState === 'analyzed' || processingState === 'assigned' || processingState === 'ready') {
       updates.last_analyzed_at = new Date().toISOString();
     }
 

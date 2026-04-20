@@ -87,34 +87,34 @@
 
     <section class="mode-panel" id="readingInboxModePanel" data-mode-panel="reading-inbox">
       <div class="reading-layout">
-        <div class="reading-queue-panel">
+        <aside class="reading-filters-panel" id="readingFiltersPanel">
+          <div class="section-header">
+            <h2 data-i18n="section.readingFilters">Filters</h2>
+            <div class="section-line"></div>
+          </div>
+          <div class="section-count" id="readingQueueCount">0 active</div>
+          <div class="reading-filters-body" id="readingFiltersBody">
+            <p class="reading-queue-empty" data-i18n="reading.filtersPlaceholder">
+              Filters will appear as your reading queue grows.
+            </p>
+          </div>
+        </aside>
+
+        <section class="reading-results-panel" id="readingResultsPanel">
           <div class="section-header">
             <h2 data-i18n="section.readingInbox">Reading inbox</h2>
             <div class="section-line"></div>
-            <div class="section-count" id="readingQueueCount">0 active</div>
           </div>
-
-          <div class="reading-view-toggle" id="readingViewToggle">
-            <button class="reading-view-btn active" type="button" data-reading-view="active" data-i18n="reading.active">Active</button>
-            <button class="reading-view-btn" type="button" data-reading-view="read" data-i18n="reading.read">Read</button>
+          <div class="reading-results-summary" id="readingResultsSummary">
+            <p class="topic-panel-copy" data-i18n="reading.resultsPlaceholder">
+              Narrow the queue on the left and reopen the right article from here.
+            </p>
           </div>
-
-          <div class="reading-queue-list" id="readingInboxList"></div>
-          <div class="reading-queue-empty" id="readingInboxEmpty" data-i18n="reading.emptyActive">
+          <div class="reading-results-groups" id="readingResultsGroups"></div>
+          <div class="reading-queue-empty" id="readingResultsEmpty" data-i18n="reading.emptyActive">
             Save your first article from Now to start a reading inbox.
           </div>
-        </div>
-
-        <aside class="topic-panel" id="topicSummaryPanel">
-          <div class="section-header">
-            <h2 data-i18n="section.topicOverview">Topic overview</h2>
-            <div class="section-line"></div>
-          </div>
-          <div class="topic-panel-body" id="topicSummaryBody">
-            <p class="topic-panel-lead" data-i18n="topic.initialLead">This panel will summarize your backlog by topic instead of opening into article detail.</p>
-            <p class="topic-panel-copy" data-i18n="topic.initialBody">Once items are saved, analyzed, and grouped, this becomes the calm decision layer for what to read next.</p>
-          </div>
-        </aside>
+        </section>
       </div>
     </section>
   </main>
