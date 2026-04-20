@@ -51,6 +51,8 @@ test('homepage controller renders pinned cards with translated copy and inbox co
   assertEqual(cards[0].querySelector('.pinned-card-title').textContent.trim(), 'Example');
   assertEqual(cards[0].getAttribute('draggable'), 'true');
   assertEqual(Boolean(cards[0].querySelector('.pinned-drag-handle')), true);
+  assertEqual(cards[0].querySelector('.pinned-card-link').getAttribute('target'), '_blank');
+  assertEqual(cards[0].querySelector('.pinned-card-link').getAttribute('rel'), 'noopener noreferrer');
   assertEqual(Boolean(fallback), true);
   assertEqual(fallback.textContent.trim(), 'D');
   assertEqual(Boolean(cards[0].querySelector('.pinned-card-menu')), true);

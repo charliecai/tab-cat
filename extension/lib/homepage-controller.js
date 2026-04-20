@@ -254,7 +254,7 @@
     return `
       <article class="pinned-card" data-pinned-id="${entry.id}" draggable="true">
         ${renderPinnedHandle(entry)}
-        <a class="pinned-card-link" href="${safeUrl}" target="_top" title="${safeTitle}">
+        <a class="pinned-card-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer" title="${safeTitle}">
           <span class="pinned-card-media" aria-hidden="true">
             <span class="pinned-card-fallback">${fallbackLabel}</span>
             ${iconHtml}
