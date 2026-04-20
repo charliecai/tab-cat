@@ -964,3 +964,36 @@ test('pinned drag reorders entries, persists them, and blocks the accidental pos
   assertEqual(blockedClickResult, false);
   assertEqual(blockedClickPrevented, null);
 });
+
+test('expanded overflow chips keep the pin action for fixed entry shortcuts', () => {
+  const tabs = Array.from({ length: 10 }, (_, index) => ({
+    id: index + 1,
+    title: `Article ${index + 1}`,
+    url: `https://mp.weixin.qq.com/article-${index + 1}`,
+    favIconUrl: 'https://res.wx.qq.com/a/fav.png',
+  }));
+
+  document.body.innerHTML = renderDomainCard({
+    domain: 'mp.weixin.qq.com',
+    label: 'Mp Weixin Qq',
+    tabs,
+  });
+
+  assertEqual(
+    document.querySelectorAll('.mission-pages > .page-chip [data-action="pin-single-tab"]').length,
+    8
+  );
+
+  const expandChip = document.querySelector('[data-action="expand-chips"]');
+  expandChip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+  const overflowOnePin = document.querySelector(
+    '.page-chip[data-tab-url="https://mp.weixin.qq.com/article-9"] [data-action="pin-single-tab"]'
+  );
+  const overflowTwoPin = document.querySelector(
+    '.page-chip[data-tab-url="https://mp.weixin.qq.com/article-10"] [data-action="pin-single-tab"]'
+  );
+
+  assertEqual(Boolean(overflowOnePin), true);
+  assertEqual(Boolean(overflowTwoPin), true);
+});
