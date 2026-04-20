@@ -233,6 +233,7 @@ test('kick marks captured articles as waiting_for_ai when AI settings are not co
     last_error_code: null,
     last_error_message: null,
   };
+  const processingTransitions = [];
 
   globalThis.chrome = {
     runtime: {
@@ -245,6 +246,7 @@ test('kick marks captured articles as waiting_for_ai when AI settings are not co
       return article;
     },
     async updateArticleProcessingState(_articleId, processingState) {
+      processingTransitions.push(processingState);
       article.processing_state = processingState;
       return article;
     },
@@ -304,6 +306,7 @@ test('kick marks captured articles as waiting_for_ai when AI settings are not co
   assertEqual(storedJob.processing_state, 'waiting_for_ai');
   assertEqual(storedJob.next_retry_at || null, null);
   assertEqual(article.last_error_code, null);
+  assertDeepEqual(processingTransitions, []);
 });
 
 test('kick closes the source tab after capture succeeds for background tabs', async () => {

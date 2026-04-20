@@ -135,13 +135,6 @@
   }
 
   async function runAnalysisStage(article, job) {
-    await globalThis.TabOutArticlesRepo.updateArticleProcessingState(article.id, 'analyzing');
-    await globalThis.TabOutJobsRepo.updateJob(job.id, {
-      processing_state: 'analyzing',
-      last_error_code: null,
-      last_error_message: null,
-    });
-
     const settings = await globalThis.TabOutSettingsRepo.getAiSettings();
     const validation = globalThis.TabOutAiClient.validateAiSettings(settings);
     if (!validation.isValid) {
@@ -159,6 +152,13 @@
       await notifyDataChanged();
       return { article: nextArticle, deferred: true };
     }
+
+    await globalThis.TabOutArticlesRepo.updateArticleProcessingState(article.id, 'analyzing');
+    await globalThis.TabOutJobsRepo.updateJob(job.id, {
+      processing_state: 'analyzing',
+      last_error_code: null,
+      last_error_message: null,
+    });
 
     const analysis = await globalThis.TabOutArticleAnalysis.analyzeArticle(
       article.analysis_source_text || article.markdown_content || '',
