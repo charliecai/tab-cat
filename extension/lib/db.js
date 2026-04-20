@@ -29,9 +29,12 @@
 
       request.addEventListener('upgradeneeded', (event) => {
         const db = request.result;
+        const upgradeTransaction = event.target && event.target.transaction
+          ? event.target.transaction
+          : request.transaction;
         schema.migrateSchema(
           db,
-          request.transaction,
+          upgradeTransaction,
           event.oldVersion,
           event.newVersion || schema.DB_VERSION
         );

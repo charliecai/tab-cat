@@ -13,6 +13,9 @@
 
   function createStore(db, transaction, name, options) {
     if (db.objectStoreNames.contains(name)) {
+      if (!transaction || typeof transaction.objectStore !== 'function') {
+        throw new Error(`Upgrade transaction is unavailable while opening existing store "${name}"`);
+      }
       return transaction.objectStore(name);
     }
 
