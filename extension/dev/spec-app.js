@@ -76,6 +76,38 @@ test('reading inbox renderer returns medium-density cards with open action and l
   );
 });
 
+test('reading inbox read cards keep read as the terminal state without archive action', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const html = helpers.renderReadingResultCard({
+    id: 'read-1',
+    title: 'Read article',
+    url: 'https://example.com/read',
+    site_name: 'example.com',
+    labels: ['agent'],
+    priority_bucket: 'worth_keeping',
+    processing_state: 'ready',
+    short_reason: 'Useful for the current queue after one pass.',
+    reading_time_estimate: 4,
+    saved_at: '2026-04-19T02:00:00.000Z',
+    last_saved_at: '2026-04-19T02:00:00.000Z',
+    lifecycle_state: 'read',
+  });
+
+  document.body.innerHTML = `<div id="fixture">${html}</div>`;
+
+  const actions = Array.from(document.querySelectorAll('.reading-result-actions .reading-item-action')).map((node) =>
+    node.textContent.trim()
+  );
+
+  assertEqual(Boolean(document.querySelector('[data-action="archive-article"]')), false);
+  assertDeepEqual(actions, [
+    globalThis.TabOutI18n.t('actions.open'),
+    globalThis.TabOutI18n.t('actions.delete'),
+  ]);
+});
+
 test('reading inbox lifecycle filter supports all unread and read states', () => {
   const helpers = globalThis.TabOutReadingInbox;
   if (!helpers) throw new Error('TabOutReadingInbox missing');
@@ -106,19 +138,6 @@ test('reading inbox lifecycle filter supports all unread and read states', () =>
       saved_at: '2026-04-19T02:00:00.000Z',
       last_saved_at: '2026-04-19T02:00:00.000Z',
       last_opened_at: '2026-04-20T02:00:00.000Z',
-    },
-    {
-      id: 'archived-1',
-      title: 'Archived article',
-      url: 'https://example.com/archive',
-      site_name: 'example.com',
-      labels: ['agent'],
-      priority_bucket: 'skim_later',
-      processing_state: 'ready',
-      lifecycle_state: 'archived',
-      saved_at: '2026-04-18T02:00:00.000Z',
-      last_saved_at: '2026-04-18T02:00:00.000Z',
-      last_opened_at: null,
     },
   ];
 

@@ -347,25 +347,41 @@ async function closeTabOutDupes() {
 
 
 /* ----------------------------------------------------------------
-   SAVED FOR LATER — chrome.storage.local
+   LEGACY DEFERRED CLEANUP — chrome.storage.local
 
-   Replaces the old server-side SQLite + REST API with Chrome's
-   built-in key-value storage. Data persists across browser sessions
-   and doesn't require a running server.
-
-   Data shape stored under the "deferred" key:
-   [
-     {
-       id: "1712345678901",          // timestamp-based unique ID
-       url: "https://example.com",
-       title: "Example Page",
-       savedAt: "2026-04-04T10:00:00.000Z",  // ISO date string
-       completed: false,             // true = checked off (archived)
-       dismissed: false              // true = dismissed without reading
-     },
-     ...
-   ]
+   Older builds stored "save for later" checklist items under the
+   "deferred" key, with completed rows representing the archive.
+   The current product no longer exposes that archive layer, so boot
+   clears completed rows and strips the legacy fields from survivors.
    ---------------------------------------------------------------- */
+
+let deferredCleanupPromise = null;
+
+async function cleanupLegacyDeferredState() {
+  if (deferredCleanupPromise) return deferredCleanupPromise;
+
+  deferredCleanupPromise = (async () => {
+    const stored = await chrome.storage.local.get('deferred');
+    const deferred = Array.isArray(stored.deferred) ? stored.deferred : [];
+    const cleaned = deferred
+      .filter((item) => item && !item.completed)
+      .map(({ completed, completedAt, ...rest }) => rest);
+    const changed =
+      cleaned.length !== deferred.length ||
+      deferred.some((item) => item && ('completed' in item || 'completedAt' in item));
+
+    if (changed) {
+      await chrome.storage.local.set({ deferred: cleaned });
+    }
+
+    return cleaned;
+  })().catch((error) => {
+    deferredCleanupPromise = null;
+    throw error;
+  });
+
+  return deferredCleanupPromise;
+}
 
 /**
  * saveTabForLater(tab)
@@ -496,51 +512,6 @@ async function saveTabForLater(tab) {
     shouldCloseNow: false,
     shouldCloseAfterCapture: Boolean(sourceRef),
   };
-}
-
-/**
- * getSavedTabs()
- *
- * Returns all saved tabs from chrome.storage.local.
- * Filters out dismissed items (those are gone for good).
- * Splits into active (not completed) and archived (completed).
- */
-async function getSavedTabs() {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  const visible = deferred.filter(t => !t.dismissed);
-  return {
-    active:   visible.filter(t => !t.completed),
-    archived: visible.filter(t => t.completed),
-  };
-}
-
-/**
- * checkOffSavedTab(id)
- *
- * Marks a saved tab as completed (checked off). It moves to the archive.
- */
-async function checkOffSavedTab(id) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  const tab = deferred.find(t => t.id === id);
-  if (tab) {
-    tab.completed = true;
-    tab.completedAt = new Date().toISOString();
-    await chrome.storage.local.set({ deferred });
-  }
-}
-
-/**
- * dismissSavedTab(id)
- *
- * Marks a saved tab as dismissed (removed from all lists).
- */
-async function dismissSavedTab(id) {
-  const { deferred = [] } = await chrome.storage.local.get('deferred');
-  const tab = deferred.find(t => t.id === id);
-  if (tab) {
-    tab.dismissed = true;
-    await chrome.storage.local.set({ deferred });
-  }
 }
 
 function getHomepageController() {
@@ -1468,7 +1439,7 @@ function renderReadingResultCard(article) {
     .join('');
   const primaryAction = `<button class="reading-item-action primary" type="button" data-action="open-article-source" data-article-url="${safeUrl}">${t('actions.open')}</button>`;
   const secondaryAction = isReadView
-    ? `<button class="reading-item-action" type="button" data-action="archive-article" data-article-id="${article.id}">${t('actions.archive')}</button>`
+    ? ''
     : `<button class="reading-item-action" type="button" data-action="mark-article-read" data-article-id="${article.id}">${t('actions.markRead')}</button>`;
   const retryAction = isRetryable
     ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
@@ -2215,7 +2186,6 @@ function smartTitle(title, url) {
 const ICONS = {
   tabs:    `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8.25V18a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 18V8.25m-18 0V6a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 6v2.25m-18 0h18" /></svg>`,
   close:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>`,
-  archive: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>`,
   focus:   `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 19.5 15-15m0 0H8.25m11.25 0v11.25" /></svg>`,
 };
 
@@ -2707,118 +2677,6 @@ function renderDomainCard(group) {
 
 
 /* ----------------------------------------------------------------
-   SAVED FOR LATER — Render Checklist Column
-   ---------------------------------------------------------------- */
-
-/**
- * renderDeferredColumn()
- *
- * Reads saved tabs from chrome.storage.local and renders the right-side
- * "Saved for Later" checklist column. Shows active items as a checklist
- * and completed items in a collapsible archive.
- */
-async function renderDeferredColumn() {
-  const column         = document.getElementById('deferredColumn');
-  const list           = document.getElementById('deferredList');
-  const empty          = document.getElementById('deferredEmpty');
-  const countEl        = document.getElementById('deferredCount');
-  const archiveEl      = document.getElementById('deferredArchive');
-  const archiveCountEl = document.getElementById('archiveCount');
-  const archiveList    = document.getElementById('archiveList');
-
-  if (!column) return;
-
-  try {
-    const { active, archived } = await getSavedTabs();
-
-    // Hide the entire column if there's nothing to show
-    if (active.length === 0 && archived.length === 0) {
-      column.style.display = 'none';
-      return;
-    }
-
-    column.style.display = 'block';
-
-    // Render active checklist items
-    if (active.length > 0) {
-      countEl.textContent = t('counts.items', { count: active.length });
-      list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
-      list.style.display = 'block';
-      empty.style.display = 'none';
-    } else {
-      list.style.display = 'none';
-      countEl.textContent = '';
-      empty.style.display = 'block';
-    }
-
-    // Render archive section
-    if (archived.length > 0) {
-      archiveCountEl.textContent = `(${archived.length})`;
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
-      archiveEl.style.display = 'block';
-    } else {
-      archiveEl.style.display = 'none';
-    }
-
-  } catch (err) {
-    console.warn('[tab-out] Could not load saved tabs:', err);
-    column.style.display = 'none';
-  }
-}
-
-/**
- * renderDeferredItem(item)
- *
- * Builds HTML for one active checklist item: checkbox, title link,
- * domain, time ago, dismiss button.
- */
-function renderDeferredItem(item) {
-  let domain = '';
-  try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const ago = timeAgo(item.savedAt);
-  const title = item.title || item.url;
-  const faviconHtml = renderFaviconImage(
-    getTabFaviconUrl(item),
-    '',
-    'width:14px;height:14px;vertical-align:-2px;margin-right:4px',
-  );
-
-  return `
-    <div class="deferred-item" data-deferred-id="${item.id}">
-      <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
-      <div class="deferred-info">
-        <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${escapeAttribute(title)}">
-          ${faviconHtml}${title}
-        </a>
-        <div class="deferred-meta">
-          <span>${domain}</span>
-          <span>${ago}</span>
-        </div>
-      </div>
-      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="${t('actions.dismiss')}">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-      </button>
-    </div>`;
-}
-
-/**
- * renderArchiveItem(item)
- *
- * Builds HTML for one completed/archived item (simpler: just title + date).
- */
-function renderArchiveItem(item) {
-  const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
-  return `
-    <div class="archive-item">
-      <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-        ${item.title || item.url}
-      </a>
-      <span class="archive-item-date">${ago}</span>
-    </div>`;
-}
-
-
-/* ----------------------------------------------------------------
    MAIN DASHBOARD RENDERER
    ---------------------------------------------------------------- */
 
@@ -2831,7 +2689,7 @@ function renderArchiveItem(item) {
  * 3. Groups tabs by domain (with landing pages pulled out to their own group)
  * 4. Renders domain cards
  * 5. Updates footer stats
- * 6. Renders the "Saved for Later" checklist
+ * 6. Renders the pinned shortcuts, reading inbox, and settings shell
  */
 async function renderStaticDashboard() {
   const homepageController = getHomepageController();
@@ -2861,6 +2719,7 @@ async function renderStaticDashboard() {
 
 async function renderDashboard() {
   await initializeLanguagePreference();
+  await cleanupLegacyDeferredState();
   await renderStaticDashboard();
 }
 
@@ -3308,15 +3167,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  if (action === 'archive-article') {
-    const articleId = actionEl.dataset.articleId;
-    if (!articleId || !globalThis.TabOutArticlesRepo) return;
-    await globalThis.TabOutArticlesRepo.markArticleArchived(articleId);
-    await renderReadingInboxSurface();
-    showToast(t('toast.archived'));
-    return;
-  }
-
   if (action === 'delete-article') {
     const articleId = actionEl.dataset.articleId;
     const row = actionEl.closest('.reading-result-card');
@@ -3441,46 +3291,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // ---- Check off a saved tab (moves it to archive) ----
-  if (action === 'check-deferred') {
-    const id = actionEl.dataset.deferredId;
-    if (!id) return;
-
-    await checkOffSavedTab(id);
-
-    // Animate: strikethrough first, then slide out
-    const item = actionEl.closest('.deferred-item');
-    if (item) {
-      item.classList.add('checked');
-      setTimeout(() => {
-        item.classList.add('removing');
-        setTimeout(() => {
-          item.remove();
-          renderDeferredColumn(); // refresh counts and archive
-        }, 300);
-      }, 800);
-    }
-    return;
-  }
-
-  // ---- Dismiss a saved tab (removes it entirely) ----
-  if (action === 'dismiss-deferred') {
-    const id = actionEl.dataset.deferredId;
-    if (!id) return;
-
-    await dismissSavedTab(id);
-
-    const item = actionEl.closest('.deferred-item');
-    if (item) {
-      item.classList.add('removing');
-      setTimeout(() => {
-        item.remove();
-        renderDeferredColumn();
-      }, 300);
-    }
-    return;
-  }
-
   // ---- Close all tabs in a domain group ----
   if (action === 'close-domain-tabs') {
     const domainId = actionEl.dataset.domainId;
@@ -3573,18 +3383,6 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-// ---- Archive toggle — expand/collapse the archive section ----
-document.addEventListener('click', (e) => {
-  const toggle = e.target.closest('#archiveToggle');
-  if (!toggle) return;
-
-  toggle.classList.toggle('open');
-  const body = document.getElementById('archiveBody');
-  if (body) {
-    body.style.display = body.style.display === 'none' ? 'block' : 'none';
-  }
-});
-
 document.addEventListener('submit', async (event) => {
   if (event.target.id !== 'pinnedEditorForm') return;
   event.preventDefault();
@@ -3634,36 +3432,6 @@ document.addEventListener('input', async (event) => {
     includeFilters: false,
     includeDebug: false,
   });
-});
-
-// ---- Archive search — filter archived items as user types ----
-document.addEventListener('input', async (e) => {
-  if (e.target.id !== 'archiveSearch') return;
-
-  const q = e.target.value.trim().toLowerCase();
-  const archiveList = document.getElementById('archiveList');
-  if (!archiveList) return;
-
-  try {
-    const { archived } = await getSavedTabs();
-
-    if (q.length < 2) {
-      // Show all archived items
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
-      return;
-    }
-
-    // Filter by title or URL containing the query string
-    const results = archived.filter(item =>
-      (item.title || '').toLowerCase().includes(q) ||
-      (item.url  || '').toLowerCase().includes(q)
-    );
-
-    archiveList.innerHTML = results.map(item => renderArchiveItem(item)).join('')
-      || `<div style="font-size:12px;color:var(--muted);padding:8px 0">${t('labels.noResults')}</div>`;
-  } catch (err) {
-    console.warn('[tab-out] Archive search failed:', err);
-  }
 });
 
 

@@ -2,6 +2,8 @@
   const namespace = (globalThis.TabOutArticlesRepo = globalThis.TabOutArticlesRepo || {});
   const { STORES } = globalThis.TabOutSchema;
   const { requestToPromise, runTransaction, generateId } = globalThis.TabOutDb;
+  let legacyArchiveCleanupDone = false;
+  let legacyArchiveCleanupPromise = null;
 
   function normalizeUrl(url) {
     try {
@@ -65,13 +67,40 @@
     };
   }
 
+  async function cleanupLegacyArchivedArticles() {
+    if (legacyArchiveCleanupDone) return;
+    if (legacyArchiveCleanupPromise) return legacyArchiveCleanupPromise;
+
+    legacyArchiveCleanupPromise = runTransaction(STORES.articles, 'readwrite', async (stores) => {
+      const store = stores[STORES.articles];
+      const rows = await requestToPromise(store.getAll());
+      rows
+        .filter((article) => article && article.lifecycle_state === 'archived')
+        .forEach((article) => {
+          store.delete(article.id);
+        });
+    })
+      .then(() => {
+        legacyArchiveCleanupDone = true;
+        legacyArchiveCleanupPromise = null;
+      })
+      .catch((error) => {
+        legacyArchiveCleanupPromise = null;
+        throw error;
+      });
+
+    return legacyArchiveCleanupPromise;
+  }
+
   async function getArticleById(id) {
+    await cleanupLegacyArchivedArticles();
     return runTransaction(STORES.articles, 'readonly', async (stores) => {
       return requestToPromise(stores[STORES.articles].get(id));
     });
   }
 
   async function listArticles() {
+    await cleanupLegacyArchivedArticles();
     return runTransaction(STORES.articles, 'readonly', async (stores) => {
       return requestToPromise(stores[STORES.articles].getAll());
     });
@@ -82,6 +111,7 @@
   }
 
   async function listArticlesByLifecycleState(lifecycleState, options = {}) {
+    await cleanupLegacyArchivedArticles();
     const sort = options.sort || 'saved_at_desc';
     const rows = await runTransaction(STORES.articles, 'readonly', async (stores) => {
       const index = stores[STORES.articles].index('by_lifecycle_state');
@@ -105,6 +135,7 @@
   }
 
   async function findArticleByCanonicalUrl(url) {
+    await cleanupLegacyArchivedArticles();
     const normalizedUrl = normalizeUrl(url);
     return runTransaction(STORES.articles, 'readonly', async (stores) => {
       const canonicalIndex = stores[STORES.articles].index('by_canonical_url');
@@ -116,6 +147,7 @@
   }
 
   async function createQueuedArticle(input) {
+    await cleanupLegacyArchivedArticles();
     const record = createArticleRecord({
       ...input,
       lifecycle_state: 'active',
@@ -130,6 +162,7 @@
   }
 
   async function upsertArticle(article) {
+    await cleanupLegacyArchivedArticles();
     const next = {
       ...article,
       updated_at: new Date().toISOString(),
@@ -143,6 +176,7 @@
   }
 
   async function updateArticle(id, updates) {
+    await cleanupLegacyArchivedArticles();
     return runTransaction(STORES.articles, 'readwrite', async (stores) => {
       const store = stores[STORES.articles];
       const article = await requestToPromise(store.get(id));
@@ -184,15 +218,12 @@
     return updateArticleLifecycleState(id, 'read');
   }
 
-  async function markArticleArchived(id) {
-    return updateArticleLifecycleState(id, 'archived');
-  }
-
   async function markArticleDeleted(id) {
     return updateArticleLifecycleState(id, 'deleted');
   }
 
   async function deleteArticlePermanently(id) {
+    await cleanupLegacyArchivedArticles();
     await runTransaction(STORES.articles, 'readwrite', async (stores) => {
       stores[STORES.articles].delete(id);
     });
@@ -213,7 +244,6 @@
   namespace.updateArticleProcessingState = updateArticleProcessingState;
   namespace.refreshArticleSavedAt = refreshArticleSavedAt;
   namespace.markArticleRead = markArticleRead;
-  namespace.markArticleArchived = markArticleArchived;
   namespace.markArticleDeleted = markArticleDeleted;
   namespace.deleteArticlePermanently = deleteArticlePermanently;
 })();

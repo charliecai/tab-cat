@@ -90,10 +90,6 @@
     typeof articlesRepo.markArticleRead === 'function'
       ? articlesRepo.markArticleRead
       : async () => {};
-  articlesRepo.markArticleArchived =
-    typeof articlesRepo.markArticleArchived === 'function'
-      ? articlesRepo.markArticleArchived
-      : async () => {};
   articlesRepo.getArticleById =
     typeof articlesRepo.getArticleById === 'function'
       ? articlesRepo.getArticleById

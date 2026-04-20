@@ -82,11 +82,11 @@ test('homepage controller keeps currently open tabs visible in Now even when inb
     [
       { url: 'https://example.com/post#section', title: 'Saved article' },
       { url: 'https://docs.example.com/guide', title: 'Visible doc' },
-      { url: 'https://keep.example.com/page', title: 'Archived article should stay visible' },
+      { url: 'https://keep.example.com/page', title: 'Read article should stay visible' },
     ],
     [
       { canonical_url: 'https://example.com/post', lifecycle_state: 'active' },
-      { canonical_url: 'https://keep.example.com/page', lifecycle_state: 'archived' },
+      { canonical_url: 'https://keep.example.com/page', lifecycle_state: 'read' },
     ]
   );
 
