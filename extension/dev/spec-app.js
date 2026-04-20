@@ -442,6 +442,7 @@ test('reading inbox retry rerenders queued state before background kick resolves
 test('reading inbox open action persists last_opened_at before opening the source tab', async () => {
   const helpers = globalThis.TabOutReadingInbox;
   if (!helpers) throw new Error('TabOutReadingInbox missing');
+  const originalCreateTab = globalThis.chrome.tabs.create;
 
   const articles = [
     {
@@ -502,6 +503,8 @@ test('reading inbox open action persists last_opened_at before opening the sourc
   assertEqual(createPayload.url, 'https://example.com/open-me');
   assertEqual(typeof updatedArticle.last_opened_at, 'string');
   assertEqual(Boolean(updatedArticle.last_opened_at), true);
+
+  globalThis.chrome.tabs.create = originalCreateTab;
 });
 
 test('reading inbox live search preserves the existing input node and focus', async () => {

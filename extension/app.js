@@ -3056,7 +3056,16 @@ document.addEventListener('click', async (e) => {
   if (action === 'open-article-source') {
     e.stopPropagation();
     const articleUrl = actionEl.dataset.articleUrl;
+    const articleId =
+      actionEl.dataset.articleId ||
+      (actionEl.closest('.reading-result-card') && actionEl.closest('.reading-result-card').dataset.articleId);
     if (articleUrl) {
+      if (articleId && globalThis.TabOutArticlesRepo && typeof globalThis.TabOutArticlesRepo.updateArticle === 'function') {
+        await globalThis.TabOutArticlesRepo.updateArticle(articleId, {
+          last_opened_at: new Date().toISOString(),
+        });
+        await renderReadingInboxSurface({ includeDebug: false });
+      }
       await chrome.tabs.create({ url: articleUrl, active: true });
     }
     return;
