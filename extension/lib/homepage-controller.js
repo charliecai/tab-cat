@@ -197,6 +197,28 @@
     }
   }
 
+  function renderPinnedHandle(entry) {
+    return `
+      <button
+        class="pinned-drag-handle"
+        type="button"
+        data-drag-handle="true"
+        data-pinned-id="${entry.id}"
+        title="${escapeHtml(t('pinned.reorderHandle'))}"
+        aria-label="${escapeHtml(t('pinned.reorderHandle'))}"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="7" cy="5" r="1.25"></circle>
+          <circle cx="13" cy="5" r="1.25"></circle>
+          <circle cx="7" cy="10" r="1.25"></circle>
+          <circle cx="13" cy="10" r="1.25"></circle>
+          <circle cx="7" cy="15" r="1.25"></circle>
+          <circle cx="13" cy="15" r="1.25"></circle>
+        </svg>
+      </button>
+    `;
+  }
+
   function renderPinnedMenu(entry) {
     return `
       <div class="pinned-card-controls">
@@ -235,7 +257,8 @@
       ? `<img class="pinned-card-favicon" src="${escapeHtml(iconUrl)}" alt="" data-hide-broken-image="true">`
       : '';
     return `
-      <article class="pinned-card" data-pinned-id="${entry.id}">
+      <article class="pinned-card" data-pinned-id="${entry.id}" draggable="true">
+        ${renderPinnedHandle(entry)}
         <a class="pinned-card-link" href="${safeUrl}" target="_top" title="${safeTitle}">
           <span class="pinned-card-media" aria-hidden="true">
             <span class="pinned-card-fallback">${fallbackLabel}</span>

@@ -44,6 +44,26 @@
           label: 'Display and AI language',
           help: 'One setting controls UI copy and AI outputs for new analysis runs.',
         },
+        backup: {
+          title: 'Backup',
+          copy: 'Export a full local snapshot before risky testing, then import it later to restore your inbox, pins, deferred tabs, and AI settings.',
+          actions: {
+            export: 'Export data',
+            import: 'Import data',
+          },
+          status: {
+            idle: 'Export a local snapshot before risky testing or import one to replace current Tab Out data.',
+            exporting: 'Preparing local backup…',
+            importing: 'Restoring local backup…',
+            exported: 'Backup exported. Keep the JSON somewhere safe.',
+            restored: 'Backup restored. Current Tab Out data was replaced.',
+            failed: ({ error }) => (error ? `Backup failed · ${error}` : 'Backup failed'),
+          },
+          confirm: {
+            title: 'Import this backup?',
+            body: 'This file includes AI credentials and will replace all current Tab Out data on this browser profile.',
+          },
+        },
         actions: {
           testConnection: 'Test connection',
           saveSettings: 'Save settings',
@@ -64,6 +84,7 @@
       },
       pinned: {
         empty: 'Pin a stable shortcut from an open tab.',
+        reorderHandle: 'Drag to reorder pinned shortcut',
         menu: {
           moreActions: 'More actions',
         },
@@ -203,6 +224,9 @@
         queuedForRetry: 'Queued for retry',
         pinUpdated: 'Pin updated',
         pinRemoved: 'Pin removed',
+        backupExported: 'Backup exported',
+        backupRestored: 'Backup restored',
+        backupFailed: 'Backup failed',
         closedTabsFromGroup: ({ count, group }) => `Closed ${count} ${pluralize(count, 'tab', 'tabs')} from ${group}`,
         closedDuplicates: 'Closed duplicates, kept one copy each',
         allTabsClosed: 'All tabs closed. Fresh start.',
@@ -265,6 +289,26 @@
           label: '界面与 AI 语言',
           help: '一个设置同时控制界面文案与后续 AI 分析输出语言。',
         },
+        backup: {
+          title: '备份',
+          copy: '在高风险测试前导出一份完整本地快照，之后可以再导入，把收件箱、固定入口、旧 deferred 列表和 AI 设置一起恢复回来。',
+          actions: {
+            export: '导出数据',
+            import: '导入数据',
+          },
+          status: {
+            idle: '你可以先导出一份本地快照，或导入一份备份来整体替换当前 Tab Out 数据。',
+            exporting: '正在准备本地备份…',
+            importing: '正在恢复本地备份…',
+            exported: '备份已导出。请把这个 JSON 文件妥善保存。',
+            restored: '备份已恢复，当前 Tab Out 数据已被替换。',
+            failed: ({ error }) => (error ? `备份失败 · ${error}` : '备份失败'),
+          },
+          confirm: {
+            title: '要导入这份备份吗？',
+            body: '这个文件包含 AI 凭据，并且会整体替换当前浏览器配置里的所有 Tab Out 数据。',
+          },
+        },
         actions: {
           testConnection: '测试连接',
           saveSettings: '保存设置',
@@ -285,6 +329,7 @@
       },
       pinned: {
         empty: '从当前打开的标签页固定常用快捷入口。',
+        reorderHandle: '拖动以调整固定入口顺序',
         menu: {
           moreActions: '更多操作',
         },
@@ -424,6 +469,9 @@
         queuedForRetry: '已加入重试队列',
         pinUpdated: '固定入口已更新',
         pinRemoved: '固定入口已移除',
+        backupExported: '备份已导出',
+        backupRestored: '备份已恢复',
+        backupFailed: '备份失败',
         closedTabsFromGroup: ({ count, group }) => `已从 ${group} 关闭 ${count} 个标签页`,
         closedDuplicates: '已关闭重复标签页，并保留一份',
         allTabsClosed: '所有标签页都已关闭，重新开始吧。',

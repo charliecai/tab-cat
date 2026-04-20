@@ -28,6 +28,7 @@ test('homepage controller renders pinned cards with translated copy and inbox co
   const nowBadge = document.getElementById('nowModeBadge').textContent;
   const queueText = document.getElementById('readingQueueCount').textContent;
   const menuTriggers = Array.from(document.querySelectorAll('.pinned-menu-trigger'));
+  const dragHandles = Array.from(document.querySelectorAll('[data-drag-handle="true"]'));
   const actions = Array.from(document.querySelectorAll('.pinned-menu-item')).map((node) =>
     node.textContent.trim()
   );
@@ -43,10 +44,13 @@ test('homepage controller renders pinned cards with translated copy and inbox co
   assertEqual(nowBadge, '7');
   assertEqual(queueText, '3 个待读');
   assertEqual(menuTriggers.length, 2);
+  assertEqual(dragHandles.length, 2);
   assertDeepEqual(actions, ['编辑', '移除', '编辑', '移除']);
   assertEqual(cards.length, 2);
   assertDeepEqual(subtitles, ['example.com', 'docs.example.com']);
   assertEqual(cards[0].querySelector('.pinned-card-title').textContent.trim(), 'Example');
+  assertEqual(cards[0].getAttribute('draggable'), 'true');
+  assertEqual(Boolean(cards[0].querySelector('.pinned-drag-handle')), true);
   assertEqual(Boolean(fallback), true);
   assertEqual(fallback.textContent.trim(), 'D');
   assertEqual(Boolean(cards[0].querySelector('.pinned-card-menu')), true);
