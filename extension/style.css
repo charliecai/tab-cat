@@ -996,12 +996,13 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .pinned-card {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 68px;
-  padding: 10px 12px;
+  padding: 10px 12px 10px 16px;
   border: 1px solid rgba(232, 226, 218, 0.92);
   border-radius: 14px;
   background: rgba(255, 253, 249, 0.74);
@@ -1021,41 +1022,50 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .pinned-drag-handle {
-  width: 26px;
-  height: 42px;
-  display: inline-flex;
+  position: absolute;
+  top: 50%;
+  left: -2px;
+  z-index: 2;
+  width: 18px;
+  height: 36px;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: none;
-  border-radius: 10px;
+  border-radius: 999px;
   background: transparent;
-  color: rgba(120, 102, 82, 0.64);
-  opacity: 0;
+  color: rgba(120, 102, 82, 0.48);
+  opacity: 0.22;
   cursor: grab;
-  transition: opacity 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+  transform: translateY(-50%);
+  transition: opacity 0.14s ease, background-color 0.14s ease, color 0.14s ease, transform 0.14s ease;
 }
 
 .pinned-card:hover .pinned-drag-handle,
 .pinned-card:focus-within .pinned-drag-handle,
 .pinned-card.dragging .pinned-drag-handle {
-  opacity: 1;
+  opacity: 0.56;
+  transform: translate(1px, -50%);
 }
 
 .pinned-drag-handle:hover,
 .pinned-drag-handle:focus-visible {
   background: rgba(245, 236, 225, 0.88);
   color: rgba(94, 79, 65, 0.92);
+  opacity: 0.92;
+  transform: translate(1px, -50%);
 }
 
 .pinned-drag-handle:active,
 .pinned-card.dragging .pinned-drag-handle {
   cursor: grabbing;
+  opacity: 0.92;
 }
 
 .pinned-drag-handle svg {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   fill: currentColor;
 }
 
@@ -1065,6 +1075,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
+  padding-left: 2px;
   color: var(--ink);
   text-decoration: none;
 }

@@ -825,9 +825,13 @@ test('pinned drag requires a handle and keeps menu clicks working', async () => 
   const firstHandle = firstCard.querySelector('[data-drag-handle="true"]');
   const firstMenuTrigger = firstCard.querySelector('.pinned-menu-trigger');
   const firstLink = firstCard.querySelector('.pinned-card-link');
+  const firstCardStyle = window.getComputedStyle(firstCard);
+  const firstHandleStyle = window.getComputedStyle(firstHandle);
 
   assertEqual(firstLink.getAttribute('target'), '_blank');
   assertEqual(firstLink.getAttribute('rel'), 'noopener noreferrer');
+  assertEqual(firstCardStyle.position, 'relative');
+  assertEqual(firstHandleStyle.position, 'absolute');
 
   const blockedDrag = new Event('dragstart', { bubbles: true, cancelable: true });
   blockedDrag.dataTransfer = createDataTransferStub();
