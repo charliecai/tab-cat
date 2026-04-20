@@ -256,3 +256,88 @@ test('captureArticle opens and closes a temporary tab when no matching tab is op
   assertDeepEqual(removedTabs, [91]);
   assertEqual(result.title, 'Fresh capture');
 });
+
+test('captureArticle can capture from a newly created temporary tab even if tabs.get is not immediately ready', async () => {
+  const onUpdatedListeners = [];
+  const removedTabs = [];
+  let getCalls = 0;
+  let capturedTabId = null;
+
+  globalThis.chrome = {
+    tabs: {
+      get: async (tabId) => {
+        if (tabId === 42) {
+          throw new Error('Missing original tab');
+        }
+        if (tabId === 91) {
+          getCalls += 1;
+          if (getCalls === 1) {
+            throw new Error('Temporary tab not queryable yet');
+          }
+          return {
+            id: 91,
+            url: 'https://example.com/article',
+            status: 'complete',
+            discarded: false,
+            title: 'Fresh capture',
+          };
+        }
+        throw new Error(`Unexpected tab id ${tabId}`);
+      },
+      query: async () => [],
+      create: async (input) => {
+        setTimeout(() => {
+          onUpdatedListeners.forEach((listener) => listener(91, { status: 'complete' }));
+        }, 0);
+        return {
+          id: 91,
+          url: input.url,
+          status: 'loading',
+          discarded: false,
+          title: 'Temporary loading tab',
+        };
+      },
+      remove: async (tabId) => {
+        removedTabs.push(tabId);
+      },
+      sendMessage: async (tabId) => {
+        capturedTabId = tabId;
+        return {
+          ok: true,
+          payload: {
+            title: 'Fresh capture',
+            analysis_source_text: 'Fresh capture',
+          },
+        };
+      },
+      reload: async () => {},
+      onUpdated: {
+        addListener(listener) {
+          onUpdatedListeners.push(listener);
+        },
+        removeListener(listener) {
+          const index = onUpdatedListeners.indexOf(listener);
+          if (index >= 0) {
+            onUpdatedListeners.splice(index, 1);
+          }
+        },
+      },
+      onRemoved: {
+        addListener() {},
+        removeListener() {},
+      },
+    },
+    scripting: {
+      executeScript: async () => {},
+    },
+  };
+
+  const result = await globalThis.TabOutCapture.captureArticle({
+    source_ref: '42',
+    url: 'https://example.com/article',
+  });
+
+  assertEqual(capturedTabId, 91);
+  assertDeepEqual(removedTabs, [91]);
+  assertEqual(result.title, 'Fresh capture');
+});

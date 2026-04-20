@@ -81,19 +81,37 @@
       throw createCaptureError('Capture unavailable on this page', 'unsupported_url');
     }
 
-    let tab;
-    try {
-      tab = await chrome.tabs.get(input.id);
-    } catch {
-      throw createCaptureError('Source tab was closed before capture could start', 'source_tab_closed_before_payload');
+    let tab = input.tabSnapshot || null;
+    if (!tab) {
+      try {
+        tab = await chrome.tabs.get(input.id);
+      } catch {
+        throw createCaptureError('Source tab was closed before capture could start', 'source_tab_closed_before_payload');
+      }
     }
 
     if (tab.discarded) {
       await chrome.tabs.reload(input.id);
       await waitForTabComplete(input.id, options.timeoutMs);
-      tab = await chrome.tabs.get(input.id);
+      try {
+        tab = await chrome.tabs.get(input.id);
+      } catch {
+        tab = {
+          ...tab,
+          status: 'complete',
+          discarded: false,
+        };
+      }
     } else if (tab.status !== 'complete') {
       await waitForTabComplete(input.id, options.timeoutMs);
+      try {
+        tab = await chrome.tabs.get(input.id);
+      } catch {
+        tab = {
+          ...tab,
+          status: 'complete',
+        };
+      }
     }
 
     await chrome.scripting.executeScript({
@@ -153,6 +171,7 @@
         {
           id: tempTabId,
           url,
+          tabSnapshot: tempTab,
         },
         options
       );
