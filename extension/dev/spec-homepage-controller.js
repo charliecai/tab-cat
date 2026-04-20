@@ -57,7 +57,7 @@ test('homepage controller renders pinned cards with translated copy and inbox co
   assertEqual(Boolean(document.querySelector('.pinned-action')), false);
 });
 
-test('homepage controller hides reading-inbox tabs from Now and dismisses emptied cards', () => {
+test('homepage controller keeps currently open tabs visible in Now even when inbox tracks the same URLs', () => {
   document.body.innerHTML = `
     <section id="openTabsSection" style="display:block">
       <div class="missions" id="openTabsMissions">
@@ -90,7 +90,11 @@ test('homepage controller hides reading-inbox tabs from Now and dismisses emptie
 
   assertDeepEqual(
     visibleTabs.map((tab) => tab.url),
-    ['https://docs.example.com/guide', 'https://keep.example.com/page']
+    [
+      'https://example.com/post#section',
+      'https://docs.example.com/guide',
+      'https://keep.example.com/page',
+    ]
   );
 
   const removedCount = globalThis.TabOutHomepageController.dismissNowTab(
@@ -103,7 +107,7 @@ test('homepage controller hides reading-inbox tabs from Now and dismisses emptie
   assertEqual(document.querySelectorAll('.page-chip[data-action="focus-tab"]').length, 1);
   assertEqual(document.querySelector('.mission-card[data-domain="example.com"]'), null);
   assertEqual(document.querySelector('.mission-card[data-domain="docs.example.com"]') !== null, true);
-  assertEqual(document.getElementById('nowModeBadge').textContent, '2');
+  assertEqual(document.getElementById('nowModeBadge').textContent, '3');
 });
 
 test('homepage controller hides the Now section after the last visible domain card is dismissed', () => {

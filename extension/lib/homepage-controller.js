@@ -79,14 +79,9 @@
   }
 
   function filterVisibleNowTabs(tabs, articles) {
-    const trackedUrls = new Set(
-      (articles || [])
-        .filter((article) => article && article.lifecycle_state !== 'archived')
-        .map((article) => normalizeUrl(article.canonical_url || article.url))
-        .filter(Boolean)
-    );
-
-    return (tabs || []).filter((tab) => !trackedUrls.has(normalizeUrl(tab && tab.url)));
+    // "Now" should reflect the user's actual open tabs.
+    // Reading inbox state is orthogonal and should not hide live tabs.
+    return Array.isArray(tabs) ? tabs.slice() : [];
   }
 
   function dismissNowTab(tabUrl, options = {}) {
