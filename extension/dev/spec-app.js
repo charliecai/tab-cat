@@ -327,6 +327,80 @@ test('reading inbox retry rerenders queued state before background kick resolves
   assertEqual(document.querySelectorAll('[data-action="retry-article"]').length, 0);
 });
 
+test('reading inbox live search preserves the existing input node and focus', async () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const articles = [
+    {
+      id: 'search-1',
+      title: 'Agent pricing changes',
+      url: 'https://example.com/pricing',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      short_reason: 'Useful',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+  ];
+
+  globalThis.TabOutArticlesRepo = {
+    async countActiveInboxItems() {
+      return 1;
+    },
+    async listArticles() {
+      return articles.slice();
+    },
+  };
+  globalThis.TabOutJobsRepo = {
+    async getJobByArticleId() {
+      return null;
+    },
+    async listJobs() {
+      return [];
+    },
+  };
+  globalThis.TabOutSettingsRepo = {
+    async getAiStatus() {
+      return { host: '', state: 'not_configured', last_error: null };
+    },
+  };
+
+  document.body.innerHTML = `
+    <div id="readingInboxBadge"></div>
+    <div id="readingQueueCount"></div>
+    <div id="readingFiltersBody">${helpers.renderReadingFiltersHtml(helpers.deriveReadingFilters(articles), {
+      lifecycle: 'active',
+      search: '',
+      labels: [],
+      source: '',
+      time: '',
+      status: '',
+    })}</div>
+    <div id="readingResultsSummary"></div>
+    <div id="readingResultsGroups"></div>
+    <div id="readingResultsEmpty"></div>
+    <div id="debugList"></div>
+  `;
+
+  const originalInput = document.getElementById('readingFilterSearch');
+  originalInput.focus();
+  originalInput.value = 'pricing';
+  originalInput.dispatchEvent(new Event('input', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  const currentInput = document.getElementById('readingFilterSearch');
+  assertEqual(currentInput, originalInput);
+  assertEqual(document.activeElement, originalInput);
+  assertEqual(currentInput.value, 'pricing');
+  assertEqual(document.getElementById('readingResultsGroups').textContent.includes('Agent pricing changes'), true);
+});
+
 test('reading inbox delete confirmation becomes visible when a card enters confirming state', () => {
   const helpers = globalThis.TabOutReadingInbox;
   if (!helpers) throw new Error('TabOutReadingInbox missing');

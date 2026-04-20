@@ -2306,7 +2306,9 @@ async function renderPinnedSurface() {
   controller.renderPinned(entries);
 }
 
-async function renderReadingInboxSurface() {
+async function renderReadingInboxSurface(options = {}) {
+  const includeFilters = options.includeFilters !== false;
+  const includeDebug = options.includeDebug !== false;
   const controller = getHomepageController();
   const articlesRepo = globalThis.TabOutArticlesRepo;
   if (!controller || !articlesRepo) return;
@@ -2325,7 +2327,9 @@ async function renderReadingInboxSurface() {
   const filters = deriveReadingFilters(articles);
   const visibleArticles = applyReadingFilters(articles, readingFilterState);
   const groups = groupReadingResultsByPriority(visibleArticles);
-  controller.renderReadingFilters(renderReadingFiltersHtml(filters, readingFilterState));
+  if (includeFilters) {
+    controller.renderReadingFilters(renderReadingFiltersHtml(filters, readingFilterState));
+  }
   controller.renderReadingResultsSummary(
     renderReadingResultsSummaryHtml(articles.length, visibleArticles.length, readingFilterState)
   );
@@ -2337,7 +2341,9 @@ async function renderReadingInboxSurface() {
         ? t('reading.emptyRead')
         : t('reading.emptyFiltered')
   );
-  await renderDebugSurface();
+  if (includeDebug) {
+    await renderDebugSurface();
+  }
 }
 
 async function renderInboxSurfaces() {
@@ -3617,7 +3623,10 @@ document.addEventListener('input', async (event) => {
     ...readingFilterState,
     search: event.target.value || '',
   };
-  await renderReadingInboxSurface();
+  await renderReadingInboxSurface({
+    includeFilters: false,
+    includeDebug: false,
+  });
 });
 
 // ---- Archive search — filter archived items as user types ----
