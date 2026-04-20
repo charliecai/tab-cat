@@ -2383,6 +2383,13 @@ function setSettingsStatus(text) {
   }
 }
 
+function setLanguageStatus(text = '') {
+  const status = document.getElementById('languageStatus');
+  if (status) {
+    status.textContent = text;
+  }
+}
+
 function setBackupStatus(text) {
   const status = document.getElementById('backupStatus');
   if (status) {
@@ -2579,7 +2586,7 @@ async function renderDebugSurface() {
     `;
 }
 
-async function loadSettingsSurface() {
+async function loadSettingsSurface({ preserveLanguageStatus = false } = {}) {
   if (!globalThis.TabOutSettingsRepo) return;
   const [settings, status] = await Promise.all([
     globalThis.TabOutSettingsRepo.getAiSettings(),
@@ -2595,6 +2602,9 @@ async function loadSettingsSurface() {
   if (modelIdInput) modelIdInput.value = settings.model_id || '';
   if (languagePreferenceInput) {
     languagePreferenceInput.value = settings.language_preference || 'auto';
+  }
+  if (!preserveLanguageStatus) {
+    setLanguageStatus('');
   }
 
   if (status.state === 'ready') {
@@ -3099,13 +3109,12 @@ document.addEventListener('click', async (e) => {
     if (!globalThis.TabOutSettingsRepo) return;
     const draft = getAiSettingsDraft();
     await globalThis.TabOutSettingsRepo.saveAiSettings(draft);
-    await applyLanguagePreference(draft.language_preference);
     await globalThis.TabOutSettingsRepo.saveAiStatus({
       state: draft.base_url && draft.api_key && draft.model_id ? 'saved' : 'not_configured',
       host: getSiteNameFromUrl(draft.base_url),
       last_error: null,
     });
-    await renderDashboard();
+    await loadSettingsSurface({ preserveLanguageStatus: true });
     showToast(t('toast.settingsSaved'));
     return;
   }
@@ -3117,7 +3126,7 @@ document.addEventListener('click', async (e) => {
       if (!result || !result.ok) {
         throw new Error(result && result.error ? result.error : 'Connection test failed');
       }
-      await loadSettingsSurface();
+      await loadSettingsSurface({ preserveLanguageStatus: true });
       await renderReadingInboxSurface({ includeDebug: false });
       showToast(t('toast.aiConnectionReady'));
     } catch (error) {
@@ -3436,6 +3445,22 @@ document.addEventListener('submit', async (event) => {
 });
 
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'settingsLanguagePreference') {
+    if (!globalThis.TabOutSettingsRepo) return;
+    const nextPreference = event.target.value || 'auto';
+    const currentSettings = await globalThis.TabOutSettingsRepo.getAiSettings();
+    const currentPreference = currentSettings.language_preference || 'auto';
+    if (currentPreference === nextPreference) return;
+
+    await globalThis.TabOutSettingsRepo.saveAiSettings({
+      ...currentSettings,
+      language_preference: nextPreference,
+    });
+    setLanguageStatus(t('settings.language.status.refreshRequired'));
+    showToast(t('toast.languageSavedRefreshRequired'));
+    return;
+  }
+
   if (event.target.id !== 'backupImportFile') return;
   const input = event.target;
   const [file] = Array.from(input.files || []);

@@ -22,9 +22,11 @@ test('TabOutI18n exposes localized labels for language preference options', () =
 
   i18n.setLanguagePreference('en', 'en-US');
   assertEqual(i18n.t('settings.language.options.auto'), 'Follow browser');
-  assertEqual(i18n.t('settings.language.options.zhCn'), 'Simplified Chinese');
+  assertEqual(i18n.t('settings.language.options.en'), 'English');
+  assertEqual(i18n.t('settings.language.options.zhCn'), '简体中文');
 
   i18n.setLanguagePreference('zh-CN', 'zh-CN');
   assertEqual(i18n.t('settings.language.options.auto'), '跟随浏览器');
+  assertEqual(i18n.t('settings.language.options.en'), 'English');
   assertEqual(i18n.t('settings.language.options.zhCn'), '简体中文');
 });

@@ -17,6 +17,7 @@ const debugIndex = html.indexOf('data-i18n="section.debug"');
 const actionsIndex = html.indexOf('data-action="test-ai-settings"');
 const statusIndex = html.indexOf('id="settingsStatus"');
 const languageSelectIndex = html.indexOf('id="settingsLanguagePreference"');
+const languageStatusIndex = html.indexOf('id="languageStatus"');
 const captureHelpIndex = html.indexOf('data-i18n="settings.provider.captureHelp"');
 
 assert(providerIndex !== -1, 'Missing AI provider block');
@@ -26,6 +27,7 @@ assert(providerIndex < languageIndex && languageIndex < debugIndex, 'Language bl
 assert(providerIndex < actionsIndex && actionsIndex < languageIndex, 'Provider actions should remain inside the AI provider block');
 assert(providerIndex < statusIndex && statusIndex < languageIndex, 'Provider status should remain inside the AI provider block');
 assert(languageIndex < languageSelectIndex && languageSelectIndex < debugIndex, 'Language select should live inside the language block');
+assert(languageIndex < languageStatusIndex && languageStatusIndex < debugIndex, 'Language status should live inside the language block');
 assert(providerIndex < captureHelpIndex && captureHelpIndex < languageIndex, 'Provider capture help should remain inside the AI provider block');
 
 console.log('PASS settings layout hierarchy');

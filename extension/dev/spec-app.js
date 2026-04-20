@@ -439,6 +439,71 @@ test('reading inbox retry rerenders queued state before background kick resolves
   assertEqual(document.querySelectorAll('[data-action="retry-article"]').length, 0);
 });
 
+test('reading inbox open action persists last_opened_at before opening the source tab', async () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const articles = [
+    {
+      id: 'open-1',
+      title: 'Open me',
+      url: 'https://example.com/open-me',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      short_reason: 'Useful',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+  ];
+
+  let createPayload = null;
+  let updatedArticle = null;
+  globalThis.chrome.tabs.create = async (input) => {
+    createPayload = { ...input };
+    return { id: 99, ...input };
+  };
+  globalThis.TabOutArticlesRepo = {
+    async countActiveInboxItems() {
+      return articles.filter((article) => article.lifecycle_state === 'active').length;
+    },
+    async listArticles() {
+      return articles.slice();
+    },
+    async updateArticle(articleId, patch) {
+      const index = articles.findIndex((article) => article.id === articleId);
+      if (index < 0) return null;
+      articles[index] = { ...articles[index], ...patch };
+      updatedArticle = { ...articles[index] };
+      return articles[index];
+    },
+  };
+
+  document.body.innerHTML = `
+    <div id="readingInboxBadge"></div>
+    <div id="readingQueueCount"></div>
+    <div id="readingFiltersBody"></div>
+    <div id="readingResultsSummary"></div>
+    <div id="readingResultsGroups">${helpers.renderReadingResultGroupsHtml([{ id: 'read_now', title: 'Read now', articles }])}</div>
+    <div id="readingResultsEmpty"></div>
+    <div id="debugList"></div>
+    <div id="toast"><span id="toastText"></span></div>
+  `;
+
+  document
+    .querySelector('[data-action="open-article-source"]')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  assertEqual(createPayload.url, 'https://example.com/open-me');
+  assertEqual(typeof updatedArticle.last_opened_at, 'string');
+  assertEqual(Boolean(updatedArticle.last_opened_at), true);
+});
+
 test('reading inbox live search preserves the existing input node and focus', async () => {
   const helpers = globalThis.TabOutReadingInbox;
   if (!helpers) throw new Error('TabOutReadingInbox missing');
@@ -801,8 +866,233 @@ test('reading inbox debug items include preheat failures and capture source meta
   assertEqual(articleItem.textSize, 'Saved article\n\nLead paragraph'.length);
 });
 
+test('language preference change saves immediately and prompts for refresh without rerendering', async () => {
+  const originalRenderDashboard = globalThis.renderDashboard;
+  const originalApplyLanguagePreference = globalThis.applyLanguagePreference;
+  let renderDashboardCalls = 0;
+  let applyLanguagePreferenceCalls = 0;
+  let savedSettings = {
+    base_url: 'https://api.example.com/v1',
+    api_key: 'secret',
+    model_id: 'gpt-4.1-mini',
+    language_preference: 'zh-CN',
+  };
+  const saveCalls = [];
+
+  globalThis.renderDashboard = async () => {
+    renderDashboardCalls += 1;
+  };
+  globalThis.applyLanguagePreference = async () => {
+    applyLanguagePreferenceCalls += 1;
+  };
+  globalThis.TabOutSettingsRepo = {
+    async getAiSettings() {
+      return { ...savedSettings };
+    },
+    async saveAiSettings(next) {
+      saveCalls.push({ ...next });
+      savedSettings = { ...next };
+      return { ...savedSettings };
+    },
+    async getAiStatus() {
+      return { state: 'not_configured', host: '', last_error: null };
+    },
+  };
+  globalThis.TabOutArticlesRepo = {
+    async listArticles() {
+      return [];
+    },
+  };
+  globalThis.TabOutJobsRepo = {
+    async listJobs() {
+      return [];
+    },
+  };
+
+  setupSettingsDom();
+  globalThis.TabOutI18n.setLanguagePreference('zh-CN', 'zh-CN');
+  globalThis.TabOutI18n.apply(document);
+  document.documentElement.lang = globalThis.TabOutI18n.getEffectiveLanguage();
+
+  document.getElementById('settingsBaseUrl').value = savedSettings.base_url;
+  document.getElementById('settingsApiKey').value = savedSettings.api_key;
+  document.getElementById('settingsModelId').value = savedSettings.model_id;
+  document.getElementById('settingsLanguagePreference').value = 'en';
+  document
+    .getElementById('settingsLanguagePreference')
+    .dispatchEvent(new Event('change', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  assertDeepEqual(saveCalls, [
+    {
+      base_url: 'https://api.example.com/v1',
+      api_key: 'secret',
+      model_id: 'gpt-4.1-mini',
+      language_preference: 'en',
+    },
+  ]);
+  assertEqual(renderDashboardCalls, 0);
+  assertEqual(applyLanguagePreferenceCalls, 0);
+  assertEqual(document.documentElement.lang, 'zh-CN');
+  assertEqual(
+    document.getElementById('languageStatus').textContent.trim(),
+    globalThis.TabOutI18n.t('settings.language.status.refreshRequired')
+  );
+  assertEqual(
+    document.getElementById('toastText').textContent.trim(),
+    globalThis.TabOutI18n.t('toast.languageSavedRefreshRequired')
+  );
+  assertEqual(document.getElementById('settingsStatus').textContent.trim(), 'provider-status');
+
+  globalThis.renderDashboard = originalRenderDashboard;
+  globalThis.applyLanguagePreference = originalApplyLanguagePreference;
+});
+
+test('language preference change is a no-op when the saved value already matches', async () => {
+  let saveCalls = 0;
+  globalThis.TabOutSettingsRepo = {
+    async getAiSettings() {
+      return {
+        base_url: '',
+        api_key: '',
+        model_id: '',
+        language_preference: 'en',
+      };
+    },
+    async saveAiSettings() {
+      saveCalls += 1;
+    },
+    async getAiStatus() {
+      return { state: 'not_configured', host: '', last_error: null };
+    },
+  };
+  globalThis.TabOutArticlesRepo = {
+    async listArticles() {
+      return [];
+    },
+  };
+  globalThis.TabOutJobsRepo = {
+    async listJobs() {
+      return [];
+    },
+  };
+
+  setupSettingsDom();
+  globalThis.TabOutI18n.setLanguagePreference('en', 'en-US');
+  globalThis.TabOutI18n.apply(document);
+  document.documentElement.lang = globalThis.TabOutI18n.getEffectiveLanguage();
+
+  document.getElementById('settingsLanguagePreference').value = 'en';
+  document
+    .getElementById('settingsLanguagePreference')
+    .dispatchEvent(new Event('change', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  assertEqual(saveCalls, 0);
+  assertEqual(document.getElementById('languageStatus').textContent.trim(), '');
+  assertEqual(document.getElementById('toastText').textContent.trim(), '');
+});
+
+test('saving provider settings preserves the refresh prompt and does not hot-switch language', async () => {
+  const originalRenderDashboard = globalThis.renderDashboard;
+  const originalApplyLanguagePreference = globalThis.applyLanguagePreference;
+  let renderDashboardCalls = 0;
+  let applyLanguagePreferenceCalls = 0;
+  let savedSettings = {
+    base_url: 'https://api.example.com/v1',
+    api_key: 'secret',
+    model_id: 'gpt-4.1-mini',
+    language_preference: 'en',
+  };
+  const savedStatuses = [];
+
+  globalThis.renderDashboard = async () => {
+    renderDashboardCalls += 1;
+  };
+  globalThis.applyLanguagePreference = async () => {
+    applyLanguagePreferenceCalls += 1;
+  };
+  globalThis.TabOutSettingsRepo = {
+    async getAiSettings() {
+      return { ...savedSettings };
+    },
+    async saveAiSettings(next) {
+      savedSettings = { ...next };
+      return { ...savedSettings };
+    },
+    async getAiStatus() {
+      return savedStatuses[savedStatuses.length - 1] || { state: 'not_configured', host: '', last_error: null };
+    },
+    async saveAiStatus(next) {
+      savedStatuses.push({ ...next });
+      return next;
+    },
+  };
+  globalThis.TabOutArticlesRepo = {
+    async listArticles() {
+      return [];
+    },
+  };
+  globalThis.TabOutJobsRepo = {
+    async listJobs() {
+      return [];
+    },
+  };
+
+  setupSettingsDom();
+  globalThis.TabOutI18n.setLanguagePreference('zh-CN', 'zh-CN');
+  globalThis.TabOutI18n.apply(document);
+  document.documentElement.lang = globalThis.TabOutI18n.getEffectiveLanguage();
+
+  document.getElementById('settingsBaseUrl').value = 'https://api.example.com/v1';
+  document.getElementById('settingsApiKey').value = 'secret';
+  document.getElementById('settingsModelId').value = 'gpt-4.1-mini';
+  document.getElementById('settingsLanguagePreference').value = 'en';
+  document.getElementById('languageStatus').textContent =
+    globalThis.TabOutI18n.t('settings.language.status.refreshRequired');
+
+  document
+    .querySelector('[data-action="save-ai-settings"]')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  assertEqual(renderDashboardCalls, 0);
+  assertEqual(applyLanguagePreferenceCalls, 0);
+  assertEqual(savedStatuses.length, 1);
+  assertEqual(savedStatuses[0].state, 'saved');
+  assertEqual(document.documentElement.lang, 'zh-CN');
+  assertEqual(
+    document.getElementById('languageStatus').textContent.trim(),
+    globalThis.TabOutI18n.t('settings.language.status.refreshRequired')
+  );
+
+  globalThis.renderDashboard = originalRenderDashboard;
+  globalThis.applyLanguagePreference = originalApplyLanguagePreference;
+});
+
 function waitForTick() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+function setupSettingsDom() {
+  document.body.innerHTML = `
+    <div id="toast"><span id="toastText"></span></div>
+    <input id="settingsBaseUrl" type="url" />
+    <input id="settingsApiKey" type="password" />
+    <input id="settingsModelId" type="text" />
+    <select id="settingsLanguagePreference">
+      <option value="auto" data-i18n="settings.language.options.auto">Follow browser</option>
+      <option value="en" data-i18n="settings.language.options.en">English</option>
+      <option value="zh-CN" data-i18n="settings.language.options.zhCn">简体中文</option>
+    </select>
+    <div id="settingsStatus">provider-status</div>
+    <div id="languageStatus"></div>
+    <button type="button" data-action="save-ai-settings">Save settings</button>
+    <div id="debugList"></div>
+  `;
 }
 
 function createDataTransferStub() {

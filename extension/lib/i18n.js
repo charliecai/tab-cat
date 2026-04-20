@@ -46,7 +46,10 @@
           options: {
             auto: 'Follow browser',
             en: 'English',
-            zhCn: 'Simplified Chinese',
+            zhCn: '简体中文',
+          },
+          status: {
+            refreshRequired: 'Language saved. Refresh the page to load it.',
           },
         },
         backup: {
@@ -278,6 +281,7 @@
         alreadyPinned: 'Already pinned',
         pinnedToNow: 'Pinned to Now',
         settingsSaved: 'Settings saved',
+        languageSavedRefreshRequired: 'Language saved. Refresh the page to load it.',
         aiConnectionReady: 'AI connection ready',
         aiConnectionFailed: 'AI connection failed',
         tabClosed: 'Tab closed',
@@ -356,8 +360,11 @@
           help: '一个设置同时控制界面文案与后续 AI 分析输出语言。',
           options: {
             auto: '跟随浏览器',
-            en: '英文',
+            en: 'English',
             zhCn: '简体中文',
+          },
+          status: {
+            refreshRequired: '语言已保存，请刷新页面加载新语言。',
           },
         },
         backup: {
@@ -588,6 +595,7 @@
         alreadyPinned: '已经固定过了',
         pinnedToNow: '已固定到当前页',
         settingsSaved: '设置已保存',
+        languageSavedRefreshRequired: '语言已保存，请刷新页面加载新语言。',
         aiConnectionReady: 'AI 连接已就绪',
         aiConnectionFailed: 'AI 连接失败',
         tabClosed: '标签页已关闭',
