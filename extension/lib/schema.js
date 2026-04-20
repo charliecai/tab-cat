@@ -11,16 +11,16 @@
     jobs: 'jobs',
   };
 
-  function createStore(db, name, options) {
+  function createStore(db, transaction, name, options) {
     if (db.objectStoreNames.contains(name)) {
-      return db.transaction.objectStore(name);
+      return transaction.objectStore(name);
     }
 
     return db.createObjectStore(name, options);
   }
 
-  function createStores(db) {
-    const articles = createStore(db, STORES.articles, { keyPath: 'id' });
+  function createStores(db, transaction) {
+    const articles = createStore(db, transaction, STORES.articles, { keyPath: 'id' });
     if (!articles.indexNames.contains('by_saved_at')) {
       articles.createIndex('by_saved_at', 'saved_at');
     }
@@ -39,7 +39,7 @@
     if (!articles.indexNames.contains('by_normalized_url')) {
       articles.createIndex('by_normalized_url', 'normalized_url');
     }
-    const topics = createStore(db, STORES.topics, { keyPath: 'id' });
+    const topics = createStore(db, transaction, STORES.topics, { keyPath: 'id' });
     if (!topics.indexNames.contains('by_title')) {
       topics.createIndex('by_title', 'title');
     }
@@ -47,12 +47,12 @@
       topics.createIndex('by_last_updated', 'last_updated');
     }
 
-    const pinnedEntries = createStore(db, STORES.pinnedEntries, { keyPath: 'id' });
+    const pinnedEntries = createStore(db, transaction, STORES.pinnedEntries, { keyPath: 'id' });
     if (!pinnedEntries.indexNames.contains('by_order')) {
       pinnedEntries.createIndex('by_order', 'order');
     }
 
-    const jobs = createStore(db, STORES.jobs, { keyPath: 'id' });
+    const jobs = createStore(db, transaction, STORES.jobs, { keyPath: 'id' });
     if (!jobs.indexNames.contains('by_article_id')) {
       jobs.createIndex('by_article_id', 'article_id', { unique: true });
     }
@@ -64,13 +64,13 @@
     }
   }
 
-  function migrateSchema(db, oldVersion, newVersion) {
+  function migrateSchema(db, transaction, oldVersion, newVersion) {
     if (oldVersion === 0 && newVersion >= 1) {
-      createStores(db);
+      createStores(db, transaction);
       return;
     }
 
-    createStores(db);
+    createStores(db, transaction);
   }
 
   namespace.DB_NAME = DB_NAME;

@@ -29,7 +29,12 @@
 
       request.addEventListener('upgradeneeded', (event) => {
         const db = request.result;
-        schema.migrateSchema(db, event.oldVersion, event.newVersion || schema.DB_VERSION);
+        schema.migrateSchema(
+          db,
+          request.transaction,
+          event.oldVersion,
+          event.newVersion || schema.DB_VERSION
+        );
       });
 
       request.addEventListener('success', () => {
