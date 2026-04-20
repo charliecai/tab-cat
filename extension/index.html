@@ -212,6 +212,17 @@
     </section>
 
     <section class="settings-block">
+      <h3 data-i18n="settings.backup.title">Backup</h3>
+      <p class="settings-block-copy" data-i18n="settings.backup.copy">Export a full local snapshot before risky testing, then import it later to restore your inbox, pins, deferred tabs, and AI settings.</p>
+      <div class="settings-actions settings-actions-wrap">
+        <button class="settings-test-button" type="button" data-action="export-local-backup" data-i18n="settings.backup.actions.export">Export data</button>
+        <button class="settings-test-button" type="button" data-action="import-local-backup" data-i18n="settings.backup.actions.import">Import data</button>
+      </div>
+      <input id="backupImportFile" class="settings-file-input" type="file" accept=".json,application/json" hidden />
+      <div class="settings-status" id="backupStatus" data-i18n="settings.backup.status.idle">Export a local snapshot before risky testing or import one to replace current Tab Out data.</div>
+    </section>
+
+    <section class="settings-block">
       <h3 data-i18n="section.debug">Debug</h3>
       <p class="settings-block-copy" data-i18n="debug.copy">Recent article pipeline states stay visible here so you can debug capture, analysis, and assignment without leaving the homepage.</p>
       <div class="debug-list" id="debugList">
@@ -229,6 +240,7 @@
 <script src="lib/schema.js"></script>
 <script src="lib/db.js"></script>
 <script src="lib/settings-repo.js"></script>
+<script src="lib/backup-service.js"></script>
 <script src="lib/i18n.js"></script>
 <script src="lib/pinned-repo.js"></script>
 <script src="lib/articles-repo.js"></script>

@@ -64,6 +64,32 @@
     return result;
   }
 
+  async function replaceStores(payload) {
+    const storePayload = {
+      [schema.STORES.articles]: Array.isArray(payload && payload.articles) ? payload.articles : [],
+      [schema.STORES.topics]: Array.isArray(payload && payload.topics) ? payload.topics : [],
+      [schema.STORES.pinnedEntries]:
+        Array.isArray(payload && payload.pinned_entries) ? payload.pinned_entries : [],
+      [schema.STORES.jobs]: Array.isArray(payload && payload.jobs) ? payload.jobs : [],
+    };
+    const storeNames = Object.values(schema.STORES);
+
+    return runTransaction(storeNames, 'readwrite', async (stores) => {
+      for (const storeName of storeNames) {
+        stores[storeName].clear();
+      }
+
+      for (const storeName of storeNames) {
+        const rows = storePayload[storeName];
+        for (const row of rows) {
+          stores[storeName].put(row);
+        }
+      }
+
+      return storePayload;
+    });
+  }
+
   function generateId(prefix) {
     const random = Math.random().toString(36).slice(2, 10);
     return `${prefix}_${Date.now()}_${random}`;
@@ -76,6 +102,7 @@
   namespace.openTabOutDb = openTabOutDb;
   namespace.requestToPromise = requestToPromise;
   namespace.runTransaction = runTransaction;
+  namespace.replaceStores = replaceStores;
   namespace.generateId = generateId;
   namespace.resetCachedDbForTests = resetCachedDbForTests;
 })();

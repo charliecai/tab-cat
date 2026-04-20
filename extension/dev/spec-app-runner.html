@@ -13,6 +13,10 @@
       padding: 24px;
     }
 
+    h1 {
+      margin: 0 0 16px;
+      font-size: 20px;
+    }
     pre {
       background: #1d1d1d;
       border: 1px solid #333;
@@ -23,34 +27,11 @@
   </style>
 </head>
 <body>
-  <h1>Tab Out App Spec Runner</h1>
+  <h1>Tab Out App Specs</h1>
   <pre id="output">Loading specs…</pre>
-  <script>
-    globalThis.__TAB_OUT_SKIP_BOOT__ = true;
-    globalThis.chrome = {
-      runtime: {
-        id: 'tab-out-spec',
-        sendMessage: async () => ({}),
-      },
-      tabs: {
-        query: async () => [],
-        create: async () => ({}),
-        update: async () => ({}),
-        remove: async () => ({}),
-      },
-      windows: {
-        getCurrent: async () => ({ id: 1 }),
-      },
-      storage: {
-        local: {
-          get: async () => ({}),
-          set: async () => ({}),
-        },
-      },
-    };
-  </script>
   <script src="../lib/i18n.js"></script>
   <script src="../lib/homepage-controller.js"></script>
+  <script src="./spec-app-bootstrap.js"></script>
   <script src="../app.js"></script>
   <script src="./spec-runner.js"></script>
   <script src="./spec-app.js"></script>

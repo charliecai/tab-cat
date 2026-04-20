@@ -37,6 +37,12 @@ let readingFilterState = {
   time: '',
   status: [],
 };
+let pinnedDragState = {
+  armedId: null,
+  draggedId: null,
+  originalOrder: [],
+  blockClicksUntil: 0,
+};
 
 /**
  * fetchOpenTabs()
@@ -91,6 +97,93 @@ function renderFaviconImage(src, className = 'chip-favicon', style = '') {
   if (!src) return '';
   const styleAttr = style ? ` style="${escapeAttribute(style)}"` : '';
   return `<img class="${escapeAttribute(className)}" src="${escapeAttribute(src)}" alt="" data-hide-broken-image="true"${styleAttr}>`;
+}
+
+function getPinnedListElement() {
+  return document.getElementById('pinnedList');
+}
+
+function getPinnedCards(list = getPinnedListElement()) {
+  if (!list) return [];
+  return Array.from(list.querySelectorAll('.pinned-card'));
+}
+
+function clearPinnedDropTargets(list = getPinnedListElement()) {
+  getPinnedCards(list).forEach((card) => {
+    card.classList.remove('drop-target');
+  });
+}
+
+function resetPinnedDragState() {
+  const list = getPinnedListElement();
+  if (list) {
+    list.classList.remove('pinned-list-dragging');
+  }
+
+  getPinnedCards(list).forEach((card) => {
+    card.classList.remove('dragging');
+    card.classList.remove('drop-target');
+  });
+
+  pinnedDragState = {
+    armedId: null,
+    draggedId: null,
+    originalOrder: [],
+    blockClicksUntil: pinnedDragState.blockClicksUntil,
+  };
+}
+
+function getPinnedOrderFromDom(list = getPinnedListElement()) {
+  return getPinnedCards(list)
+    .map((card) => card.dataset.pinnedId)
+    .filter(Boolean);
+}
+
+function resolvePinnedDragCard(target) {
+  if (!(target instanceof Element)) return null;
+  return target.closest('#pinnedList .pinned-card');
+}
+
+function shouldInsertPinnedCardBefore(targetCard, event) {
+  const rect = targetCard.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const deltaX = (event.clientX || centerX) - centerX;
+  const deltaY = (event.clientY || centerY) - centerY;
+  return Math.abs(deltaY) > Math.abs(deltaX)
+    ? (event.clientY || centerY) < centerY
+    : (event.clientX || centerX) < centerX;
+}
+
+function armPinnedDrag(pinnedId) {
+  if (!pinnedId) return;
+  closePinnedMenus();
+  pinnedDragState.armedId = pinnedId;
+}
+
+function clearPinnedDragArm() {
+  if (pinnedDragState.draggedId) return;
+  pinnedDragState.armedId = null;
+}
+
+async function persistPinnedOrder(list = getPinnedListElement()) {
+  const pinnedRepo = globalThis.TabOutPinnedRepo;
+  if (!list || !pinnedRepo || typeof pinnedRepo.reorderPinnedEntries !== 'function') return;
+
+  const nextOrder = getPinnedOrderFromDom(list);
+  if (nextOrder.length === 0) return;
+  if (nextOrder.join('|') === pinnedDragState.originalOrder.join('|')) return;
+
+  await pinnedRepo.reorderPinnedEntries(nextOrder);
+  await renderPinnedSurface();
+}
+
+function finishPinnedDrag(options = {}) {
+  const { suppressClicks = false } = options;
+  if (suppressClicks) {
+    pinnedDragState.blockClicksUntil = Date.now() + 250;
+  }
+  resetPinnedDragState();
 }
 
 document.addEventListener('error', (event) => {
@@ -1893,6 +1986,65 @@ function setSettingsStatus(text) {
   }
 }
 
+function setBackupStatus(text) {
+  const status = document.getElementById('backupStatus');
+  if (status) {
+    status.textContent = text;
+  }
+}
+
+function triggerBackupDownload(snapshot) {
+  const filename = globalThis.TabOutBackupService.buildBackupFilename(snapshot.exported_at);
+  const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(String(reader.result || '')));
+    reader.addEventListener('error', () => reject(reader.error || new Error('Unable to read file.')));
+    reader.readAsText(file);
+  });
+}
+
+async function importBackupFile(file) {
+  if (!file || !globalThis.TabOutBackupService) return;
+
+  let parsed;
+  try {
+    const text = await readFileAsText(file);
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Backup file is not valid JSON.');
+  }
+
+  const snapshot = globalThis.TabOutBackupService.validateSnapshot(parsed);
+  const confirmed = window.confirm(
+    `${t('settings.backup.confirm.title')}\n\n${t('settings.backup.confirm.body')}`
+  );
+  if (!confirmed) {
+    return { canceled: true };
+  }
+
+  setBackupStatus(t('settings.backup.status.importing'));
+  await globalThis.TabOutBackupService.restoreSnapshot(snapshot);
+  await renderDashboard();
+  await kickBackgroundJobs();
+  setBackupStatus(t('settings.backup.status.restored'));
+  showToast(t('toast.backupRestored'));
+  return { canceled: false };
+}
+
 async function renderDebugSurface() {
   const list = document.getElementById('debugList');
   if (!list || !globalThis.TabOutArticlesRepo || !globalThis.TabOutJobsRepo || !globalThis.TabOutSettingsRepo) return;
@@ -2329,6 +2481,122 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
    instead of one per door.
    ---------------------------------------------------------------- */
 
+document.addEventListener(
+  'click',
+  (event) => {
+    if (Date.now() >= pinnedDragState.blockClicksUntil) return;
+    if (!(event.target instanceof Element)) return;
+    if (!event.target.closest('#pinnedList .pinned-card')) return;
+    event.preventDefault();
+    event.stopPropagation();
+  },
+  true
+);
+
+document.addEventListener('pointerdown', (event) => {
+  if (!(event.target instanceof Element)) {
+    clearPinnedDragArm();
+    return;
+  }
+
+  const handle = event.target.closest('[data-drag-handle="true"]');
+  if (!handle) {
+    clearPinnedDragArm();
+    return;
+  }
+
+  armPinnedDrag(handle.dataset.pinnedId);
+});
+
+document.addEventListener('pointerup', () => {
+  clearPinnedDragArm();
+});
+
+document.addEventListener('dragstart', (event) => {
+  const card = resolvePinnedDragCard(event.target);
+  if (!card) return;
+
+  if (pinnedDragState.armedId !== card.dataset.pinnedId) {
+    event.preventDefault();
+    return;
+  }
+
+  const list = getPinnedListElement();
+  if (!list) {
+    event.preventDefault();
+    return;
+  }
+
+  pinnedDragState.draggedId = card.dataset.pinnedId || null;
+  pinnedDragState.originalOrder = getPinnedOrderFromDom(list);
+  list.classList.add('pinned-list-dragging');
+  card.classList.add('dragging');
+  clearPinnedDropTargets(list);
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', pinnedDragState.draggedId || '');
+  }
+});
+
+document.addEventListener('dragover', (event) => {
+  if (!pinnedDragState.draggedId) return;
+
+  const list = getPinnedListElement();
+  const draggedCard = resolvePinnedDragCard(document.querySelector('#pinnedList .pinned-card.dragging'));
+  if (!list || !draggedCard) return;
+
+  const targetCard = resolvePinnedDragCard(event.target);
+  if (targetCard && targetCard !== draggedCard) {
+    event.preventDefault();
+    clearPinnedDropTargets(list);
+    targetCard.classList.add('drop-target');
+    const insertBefore = shouldInsertPinnedCardBefore(targetCard, event);
+    list.insertBefore(draggedCard, insertBefore ? targetCard : targetCard.nextSibling);
+    return;
+  }
+
+  if (event.target === list || (event.target instanceof Element && list.contains(event.target))) {
+    event.preventDefault();
+    clearPinnedDropTargets(list);
+    if (!(event.target instanceof Element) || event.target === list) {
+      list.appendChild(draggedCard);
+    }
+  }
+});
+
+document.addEventListener('drop', async (event) => {
+  if (!pinnedDragState.draggedId) return;
+
+  const list = getPinnedListElement();
+  if (!list) {
+    finishPinnedDrag({ suppressClicks: true });
+    return;
+  }
+
+  if (
+    event.target !== list &&
+    (!(event.target instanceof Element) || !list.contains(event.target))
+  ) {
+    finishPinnedDrag({ suppressClicks: true });
+    return;
+  }
+
+  event.preventDefault();
+
+  try {
+    await persistPinnedOrder(list);
+  } finally {
+    finishPinnedDrag({ suppressClicks: true });
+  }
+});
+
+document.addEventListener('dragend', (event) => {
+  const card = resolvePinnedDragCard(event.target);
+  if (!card || card.dataset.pinnedId !== pinnedDragState.draggedId) return;
+  finishPinnedDrag({ suppressClicks: true });
+});
+
 document.addEventListener('click', async (e) => {
   const pinnedEditorBackdrop = document.getElementById('pinnedEditorBackdrop');
   if (pinnedEditorBackdrop && e.target === pinnedEditorBackdrop) {
@@ -2475,6 +2743,30 @@ document.addEventListener('click', async (e) => {
     } catch (error) {
       setSettingsStatus(t('settings.status.failed', { error: error.message }));
       showToast(t('toast.aiConnectionFailed'));
+    }
+    return;
+  }
+
+  if (action === 'export-local-backup') {
+    if (!globalThis.TabOutBackupService) return;
+    try {
+      setBackupStatus(t('settings.backup.status.exporting'));
+      const snapshot = await globalThis.TabOutBackupService.exportSnapshot();
+      triggerBackupDownload(snapshot);
+      setBackupStatus(t('settings.backup.status.exported'));
+      showToast(t('toast.backupExported'));
+    } catch (error) {
+      setBackupStatus(t('settings.backup.status.failed', { error: error.message }));
+      showToast(t('toast.backupFailed'));
+    }
+    return;
+  }
+
+  if (action === 'import-local-backup') {
+    const input = document.getElementById('backupImportFile');
+    if (input) {
+      input.value = '';
+      input.click();
     }
     return;
   }
@@ -2813,6 +3105,25 @@ document.addEventListener('submit', async (event) => {
   if (event.target.id !== 'pinnedEditorForm') return;
   event.preventDefault();
   await submitPinnedEditor();
+});
+
+document.addEventListener('change', async (event) => {
+  if (event.target.id !== 'backupImportFile') return;
+  const input = event.target;
+  const [file] = Array.from(input.files || []);
+  if (!file) {
+    input.value = '';
+    return;
+  }
+
+  try {
+    await importBackupFile(file);
+  } catch (error) {
+    setBackupStatus(t('settings.backup.status.failed', { error: error.message }));
+    showToast(t('toast.backupFailed'));
+  } finally {
+    input.value = '';
+  }
 });
 
 document.addEventListener('keydown', (event) => {
