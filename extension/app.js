@@ -36,7 +36,7 @@ let readingFilterState = {
   labels: [],
   source: '',
   time: '',
-  status: [],
+  status: '',
 };
 let pinnedDragState = {
   armedId: null,
@@ -1307,6 +1307,9 @@ function deriveReadingFilters(articles) {
 
 function applyReadingFilters(articles, filterState) {
   const query = (filterState.search || '').trim().toLowerCase();
+  const activeStatus = Array.isArray(filterState.status)
+    ? (filterState.status[0] || '')
+    : (filterState.status || '');
   return (articles || []).filter((article) => {
     if (!matchesReadingLifecycle(article, filterState.lifecycle || 'active')) {
       return false;
@@ -1324,9 +1327,9 @@ function applyReadingFilters(articles, filterState) {
     if (filterState.time && getArticleTimeBucket(article) !== filterState.time) {
       return false;
     }
-    if (filterState.status.length > 0) {
+    if (activeStatus) {
       const tokens = getArticleStatusTokens(article);
-      if (!filterState.status.every((token) => tokens.includes(token))) {
+      if (!tokens.includes(activeStatus)) {
         return false;
       }
     }
@@ -1365,9 +1368,12 @@ function buildActiveFilterChips(filterState) {
   if (filterState.time) {
     chips.push({ kind: 'time', value: filterState.time, label: t(`reading.time.${filterState.time}`) });
   }
-  filterState.status.forEach((value) => {
-    chips.push({ kind: 'status', value, label: t(`reading.status.${value}`) });
-  });
+  const activeStatus = Array.isArray(filterState.status)
+    ? (filterState.status[0] || '')
+    : (filterState.status || '');
+  if (activeStatus) {
+    chips.push({ kind: 'status', value: activeStatus, label: t(`reading.status.${activeStatus}`) });
+  }
   return chips;
 }
 
@@ -1384,18 +1390,21 @@ function renderReadingFiltersHtml(filters, filterState) {
   const activeSource = filterState.source;
   const activeTime = filterState.time;
   const activeLifecycle = filterState.lifecycle || 'active';
+  const activeStatus = Array.isArray(filterState.status)
+    ? (filterState.status[0] || '')
+    : (filterState.status || '');
   return `
     <div class="reading-filter-stack">
+      <label class="reading-filter-search">
+        <span>${t('reading.filters.search')}</span>
+        <input id="readingFilterSearch" type="search" value="${escapeAttribute(filterState.search)}" placeholder="${escapeAttribute(t('reading.searchPlaceholder'))}">
+      </label>
       <section class="reading-filter-section">
         <h3>${t('reading.filters.lifecycle')}</h3>
         <div class="reading-filter-options">
           ${filters.lifecycle.map((entry) => renderFilterOption('lifecycle', entry.value, t(`reading.lifecycle.${entry.value}`), entry.count, activeLifecycle === entry.value)).join('')}
         </div>
       </section>
-      <label class="reading-filter-search">
-        <span>${t('reading.filters.search')}</span>
-        <input id="readingFilterSearch" type="search" value="${escapeAttribute(filterState.search)}" placeholder="${escapeAttribute(t('reading.searchPlaceholder'))}">
-      </label>
       <section class="reading-filter-section">
         <h3>${t('reading.filters.labels')}</h3>
         <div class="reading-filter-options">
@@ -1417,7 +1426,7 @@ function renderReadingFiltersHtml(filters, filterState) {
       <section class="reading-filter-section">
         <h3>${t('reading.filters.status')}</h3>
         <div class="reading-filter-options">
-          ${filters.statuses.map((entry) => renderFilterOption('status', entry.value, t(`reading.status.${entry.value}`), entry.count, filterState.status.includes(entry.value))).join('')}
+          ${filters.statuses.map((entry) => renderFilterOption('status', entry.value, t(`reading.status.${entry.value}`), entry.count, activeStatus === entry.value)).join('')}
         </div>
       </section>
       <button class="reading-clear-filters" type="button" data-action="clear-reading-filters">${t('reading.clearFilters')}</button>
@@ -3349,8 +3358,10 @@ document.addEventListener('click', async (e) => {
       article_id: articleId,
       processing_state: checkpointState,
     });
-    await kickBackgroundJobs();
     await renderReadingInboxSurface();
+    kickBackgroundJobs().catch((error) => {
+      console.warn('[tab-out] Failed to kick jobs runner after retry:', error);
+    });
     showToast(t('toast.queuedForRetry'));
     return;
   }
@@ -3359,7 +3370,7 @@ document.addEventListener('click', async (e) => {
     const kind = actionEl.dataset.filterKind;
     const value = actionEl.dataset.filterValue;
     if (!kind || !value) return;
-    if (kind === 'label' || kind === 'status') {
+    if (kind === 'label') {
       const current = new Set(readingFilterState[kind]);
       if (current.has(value)) {
         current.delete(value);
@@ -3384,7 +3395,7 @@ document.addEventListener('click', async (e) => {
       labels: [],
       source: '',
       time: '',
-      status: [],
+      status: '',
     };
     await renderReadingInboxSurface();
     return;

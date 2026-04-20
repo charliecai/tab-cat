@@ -35,7 +35,7 @@ test('reading inbox view model derives filters and groups from active articles',
     labels: ['agent'],
     source: 'example.com',
     time: '',
-    status: ['ready', 'unopened'],
+    status: 'ready',
   });
   const groups = helpers.groupReadingResultsByPriority(visible);
 
@@ -198,6 +198,133 @@ test('reading inbox filters render all unread and read options', () => {
     `${globalThis.TabOutI18n.t('reading.lifecycle.active')} 2`,
     `${globalThis.TabOutI18n.t('reading.lifecycle.read')} 1`,
   ]);
+  assertEqual(document.querySelector('.reading-filter-stack').firstElementChild.tagName, 'LABEL');
+});
+
+test('reading inbox status filter is single-select and matches one token at a time', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const articles = [
+    {
+      id: 'ready-1',
+      title: 'Ready article',
+      url: 'https://example.com/ready',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
+      id: 'failed-1',
+      title: 'Failed article',
+      url: 'https://example.com/failed',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'skim_later',
+      processing_state: 'capture_failed',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-19T02:00:00.000Z',
+      last_saved_at: '2026-04-19T02:00:00.000Z',
+      last_opened_at: null,
+    },
+  ];
+
+  const readyVisible = helpers.applyReadingFilters(articles, {
+    lifecycle: 'all',
+    search: '',
+    labels: [],
+    source: '',
+    time: '',
+    status: 'ready',
+  });
+  const failedVisible = helpers.applyReadingFilters(articles, {
+    lifecycle: 'all',
+    search: '',
+    labels: [],
+    source: '',
+    time: '',
+    status: 'failed',
+  });
+
+  assertDeepEqual(readyVisible.map((article) => article.id), ['ready-1']);
+  assertDeepEqual(failedVisible.map((article) => article.id), ['failed-1']);
+});
+
+test('reading inbox retry rerenders queued state before background kick resolves', async () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const articles = [
+    {
+      id: 'retry-1',
+      title: 'Retry me',
+      url: 'https://example.com/retry',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'skim_later',
+      processing_state: 'capture_failed',
+      short_reason: 'Retry me',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+  ];
+
+  let enqueuedJob = null;
+  globalThis.chrome.runtime.sendMessage = async () => new Promise(() => {});
+  globalThis.TabOutArticlesRepo = {
+    async countActiveInboxItems() {
+      return articles.filter((article) => article.lifecycle_state === 'active').length;
+    },
+    async listArticles() {
+      return articles.slice();
+    },
+    async getArticleById(articleId) {
+      return articles.find((article) => article.id === articleId) || null;
+    },
+    async updateArticle(articleId, patch) {
+      const index = articles.findIndex((article) => article.id === articleId);
+      if (index < 0) return null;
+      articles[index] = { ...articles[index], ...patch };
+      return articles[index];
+    },
+  };
+  globalThis.TabOutJobsRepo = {
+    async enqueueJob(input) {
+      enqueuedJob = { ...input };
+      return enqueuedJob;
+    },
+    async listJobs() {
+      return [];
+    },
+  };
+
+  document.body.innerHTML = `
+    <div id="readingInboxBadge"></div>
+    <div id="readingQueueCount"></div>
+    <div id="readingFiltersBody"></div>
+    <div id="readingResultsSummary"></div>
+    <div id="readingResultsGroups">${helpers.renderReadingResultGroupsHtml([{ id: 'skim_later', title: 'Skim later', articles }])}</div>
+    <div id="readingResultsEmpty"></div>
+    <div id="debugList"></div>
+    <div id="toast"><span id="toastText"></span></div>
+  `;
+
+  document
+    .querySelector('[data-action="retry-article"]')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  assertEqual(enqueuedJob.processing_state, 'queued');
+  assertEqual(document.querySelector('.reading-item-processing').textContent.trim(), globalThis.TabOutI18n.t('processing.queued'));
+  assertEqual(document.querySelectorAll('[data-action="retry-article"]').length, 0);
 });
 
 test('reading inbox delete confirmation becomes visible when a card enters confirming state', () => {
