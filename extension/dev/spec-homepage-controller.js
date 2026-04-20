@@ -160,3 +160,31 @@ test('homepage controller renders the reading results shell without a topic summ
   );
   assertEqual(document.getElementById('readingResultsEmpty').style.display, 'none');
 });
+
+test('homepage controller closes the settings drawer when clicking outside it', () => {
+  document.body.innerHTML = `
+    <button type="button" data-action="toggle-settings" aria-expanded="false">Settings</button>
+    <aside id="settingsDrawer" aria-hidden="true">
+      <button type="button" data-action="close-settings">Close</button>
+      <div id="settingsInner">Inner</div>
+    </aside>
+    <div id="outsideSurface">Outside</div>
+    <div id="nowModeBadge"></div>
+    <div id="readingInboxBadge"></div>
+    <div id="readingQueueCount"></div>
+  `;
+
+  globalThis.TabOutHomepageController.init();
+
+  const trigger = document.querySelector('[data-action="toggle-settings"]');
+  const drawer = document.getElementById('settingsDrawer');
+  const outside = document.getElementById('outsideSurface');
+
+  trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  assertEqual(drawer.getAttribute('aria-hidden'), 'false');
+  assertEqual(trigger.getAttribute('aria-expanded'), 'true');
+
+  outside.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  assertEqual(drawer.getAttribute('aria-hidden'), 'true');
+  assertEqual(trigger.getAttribute('aria-expanded'), 'false');
+});

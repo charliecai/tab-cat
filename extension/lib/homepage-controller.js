@@ -154,6 +154,11 @@
     }
   }
 
+  function isSettingsOpen() {
+    const drawer = byId('settingsDrawer');
+    return !!drawer && drawer.getAttribute('aria-hidden') === 'false';
+  }
+
   function escapeHtml(value) {
     return String(value || '')
       .replace(/&/g, '&amp;')
@@ -316,6 +321,14 @@
     state.initialized = true;
 
     document.addEventListener('click', (event) => {
+      if (
+        isSettingsOpen() &&
+        !event.target.closest('#settingsDrawer') &&
+        !event.target.closest('[data-action="toggle-settings"]')
+      ) {
+        toggleSettings(false);
+      }
+
       const modeButton = event.target.closest('[data-mode-target]');
       if (modeButton) {
         setMode(modeButton.dataset.modeTarget);
