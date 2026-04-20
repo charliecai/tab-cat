@@ -118,7 +118,13 @@
         clearFilters: 'Clear filters',
         resultsCount: ({ count, total }) => `${count} of ${total} articles`,
         readingTimeMinutes: ({ count }) => `${count} min read`,
+        lifecycle: {
+          all: 'All',
+          active: 'Unread',
+          read: 'Read',
+        },
         filters: {
+          lifecycle: 'Reading state',
           search: 'Search',
           labels: 'Labels',
           source: 'Source',
@@ -410,7 +416,13 @@
         clearFilters: '清空筛选',
         resultsCount: ({ count, total }) => `${count} / ${total} 篇文章`,
         readingTimeMinutes: ({ count }) => `${count} 分钟阅读`,
+        lifecycle: {
+          all: '全部',
+          active: '未读',
+          read: '已读',
+        },
         filters: {
+          lifecycle: '阅读状态',
           search: '搜索',
           labels: '标签',
           source: '来源',

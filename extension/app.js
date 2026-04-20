@@ -31,6 +31,7 @@ let pinnedEditorState = {
   trigger: null,
 };
 let readingFilterState = {
+  lifecycle: 'active',
   search: '',
   labels: [],
   source: '',
@@ -1215,6 +1216,16 @@ function getArticleStatusTokens(article) {
   return tokens;
 }
 
+function isReadingLibraryArticle(article) {
+  return Boolean(article) && ['active', 'read'].includes(article.lifecycle_state || 'active');
+}
+
+function matchesReadingLifecycle(article, lifecycle) {
+  if (!isReadingLibraryArticle(article)) return false;
+  if (!lifecycle || lifecycle === 'all') return true;
+  return (article.lifecycle_state || 'active') === lifecycle;
+}
+
 function needsReadingMetadataBackfill(article) {
   if (!article) return false;
   if (['queued', 'capturing', 'captured', 'analyzing', 'capture_failed', 'analysis_failed'].includes(article.processing_state)) {
@@ -1258,25 +1269,37 @@ function uniqueSorted(values) {
 }
 
 function deriveReadingFilters(articles) {
+  const libraryArticles = (articles || []).filter(isReadingLibraryArticle);
   return {
-    labels: uniqueSorted(articles.flatMap((article) => article.labels || [])).map((value) => ({
+    lifecycle: [
+      { value: 'all', count: libraryArticles.length },
+      {
+        value: 'active',
+        count: libraryArticles.filter((article) => (article.lifecycle_state || 'active') === 'active').length,
+      },
+      {
+        value: 'read',
+        count: libraryArticles.filter((article) => article.lifecycle_state === 'read').length,
+      },
+    ],
+    labels: uniqueSorted(libraryArticles.flatMap((article) => article.labels || [])).map((value) => ({
       value,
-      count: articles.filter((article) => (article.labels || []).includes(value)).length,
+      count: libraryArticles.filter((article) => (article.labels || []).includes(value)).length,
     })),
-    sources: uniqueSorted(articles.map(getArticleSource)).map((value) => ({
+    sources: uniqueSorted(libraryArticles.map(getArticleSource)).map((value) => ({
       value,
-      count: articles.filter((article) => getArticleSource(article) === value).length,
+      count: libraryArticles.filter((article) => getArticleSource(article) === value).length,
     })),
     times: ['today', 'last_3_days', 'last_7_days', 'older']
       .map((value) => ({
         value,
-        count: articles.filter((article) => getArticleTimeBucket(article) === value).length,
+        count: libraryArticles.filter((article) => getArticleTimeBucket(article) === value).length,
       }))
       .filter((entry) => entry.count > 0),
     statuses: ['ready', 'processing', 'failed', 'unopened', 'opened']
       .map((value) => ({
         value,
-        count: articles.filter((article) => getArticleStatusTokens(article).includes(value)).length,
+        count: libraryArticles.filter((article) => getArticleStatusTokens(article).includes(value)).length,
       }))
       .filter((entry) => entry.count > 0),
   };
@@ -1285,6 +1308,9 @@ function deriveReadingFilters(articles) {
 function applyReadingFilters(articles, filterState) {
   const query = (filterState.search || '').trim().toLowerCase();
   return (articles || []).filter((article) => {
+    if (!matchesReadingLifecycle(article, filterState.lifecycle || 'active')) {
+      return false;
+    }
     if (query) {
       const haystack = `${article.title || ''} ${article.url || ''} ${getArticleSource(article)}`.toLowerCase();
       if (!haystack.includes(query)) return false;
@@ -1357,8 +1383,15 @@ function renderFilterOption(kind, value, label, count, active) {
 function renderReadingFiltersHtml(filters, filterState) {
   const activeSource = filterState.source;
   const activeTime = filterState.time;
+  const activeLifecycle = filterState.lifecycle || 'active';
   return `
     <div class="reading-filter-stack">
+      <section class="reading-filter-section">
+        <h3>${t('reading.filters.lifecycle')}</h3>
+        <div class="reading-filter-options">
+          ${filters.lifecycle.map((entry) => renderFilterOption('lifecycle', entry.value, t(`reading.lifecycle.${entry.value}`), entry.count, activeLifecycle === entry.value)).join('')}
+        </div>
+      </section>
       <label class="reading-filter-search">
         <span>${t('reading.filters.search')}</span>
         <input id="readingFilterSearch" type="search" value="${escapeAttribute(filterState.search)}" placeholder="${escapeAttribute(t('reading.searchPlaceholder'))}">
@@ -1414,8 +1447,9 @@ function renderReadingResultCard(article) {
   const isReadView = article.lifecycle_state === 'read';
   const readingTimeLabel = getReadingTimeLabel(article);
   const labels = (article.labels || []).slice(0, 4);
-  const labelHtml = labels
-    .map((label) => `<span class="reading-result-label">${label}</span>`)
+  const labelHtml = []
+    .concat(article.lifecycle_state === 'read' ? [`<span class="reading-result-label">${t('reading.lifecycle.read')}</span>`] : [])
+    .concat(labels.map((label) => `<span class="reading-result-label">${label}</span>`))
     .join('');
   const primaryAction = `<button class="reading-item-action primary" type="button" data-action="open-article-source" data-article-url="${safeUrl}">${t('actions.open')}</button>`;
   const secondaryAction = isReadView
@@ -2271,9 +2305,13 @@ async function renderReadingInboxSurface() {
   const activeCount = await articlesRepo.countActiveInboxItems();
   controller.setReadingInboxCount(activeCount);
 
-  const articles = await articlesRepo.listArticlesByLifecycleState('active', {
-    sort: 'last_saved_at_desc',
-  });
+  const articles = (await articlesRepo.listArticles())
+    .filter(isReadingLibraryArticle)
+    .sort(
+      (left, right) =>
+        new Date(right.last_saved_at || right.saved_at || 0).getTime() -
+        new Date(left.last_saved_at || left.saved_at || 0).getTime()
+    );
   await ensureReadingMetadataBackfill(articles);
   const filters = deriveReadingFilters(articles);
   const visibleArticles = applyReadingFilters(articles, readingFilterState);
@@ -2284,7 +2322,11 @@ async function renderReadingInboxSurface() {
   );
   controller.renderReadingResultGroups(
     renderReadingResultGroupsHtml(groups),
-    articles.length === 0 ? t('reading.emptyActive') : t('reading.emptyFiltered')
+    articles.length === 0
+      ? t('reading.emptyActive')
+      : readingFilterState.lifecycle === 'read' && visibleArticles.length === 0
+        ? t('reading.emptyRead')
+        : t('reading.emptyFiltered')
   );
   await renderDebugSurface();
 }
@@ -3337,6 +3379,7 @@ document.addEventListener('click', async (e) => {
 
   if (action === 'clear-reading-filters') {
     readingFilterState = {
+      lifecycle: 'active',
       search: '',
       labels: [],
       source: '',
@@ -3605,6 +3648,7 @@ globalThis.TabOutReadingInbox = {
   applyReadingFilters,
   groupReadingResultsByPriority,
   needsReadingMetadataBackfill,
+  renderReadingFiltersHtml,
   renderReadingResultCard,
   renderReadingResultGroupsHtml,
   renderReadingResultsSummaryHtml,

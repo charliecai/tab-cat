@@ -18,6 +18,16 @@
     return error;
   }
 
+  function normalizeUrl(url) {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = '';
+      return parsed.toString();
+    } catch {
+      return url || '';
+    }
+  }
+
   function getSiteNameFromUrl(url) {
     try {
       return new URL(url).hostname.replace(/^www\./, '');
@@ -115,18 +125,84 @@
     };
   }
 
+  async function findMatchingOpenTab(url, excludedTabId) {
+    const normalizedTarget = normalizeUrl(url);
+    if (!normalizedTarget) return null;
+
+    const tabs = await chrome.tabs.query({});
+    return (
+      tabs.find((tab) => {
+        if (!tab || !tab.id || tab.id === excludedTabId) return false;
+        return normalizeUrl(tab.url) === normalizedTarget;
+      }) || null
+    );
+  }
+
+  async function captureFromTemporaryTab(url, options = {}) {
+    const tempTab = await chrome.tabs.create({
+      url,
+      active: false,
+    });
+    const tempTabId = tempTab && tempTab.id ? Number(tempTab.id) : null;
+    if (!tempTabId) {
+      throw createCaptureError('Could not open a temporary source tab for capture', 'source_tab_closed_before_payload');
+    }
+
+    try {
+      return await captureTab(
+        {
+          id: tempTabId,
+          url,
+        },
+        options
+      );
+    } finally {
+      try {
+        await chrome.tabs.remove(tempTabId);
+      } catch {
+        // Temporary capture tab may already be gone.
+      }
+    }
+  }
+
+  async function recoverArticleCapture(article, options = {}, excludedTabId = null) {
+    const matchingTab = await findMatchingOpenTab(article.url, excludedTabId);
+    if (matchingTab) {
+      return captureTab(
+        {
+          id: matchingTab.id,
+          url: article.url,
+        },
+        options
+      );
+    }
+    return captureFromTemporaryTab(article.url, options);
+  }
+
   async function captureArticle(article, options = {}) {
     const sourceRef = Number(article.source_ref);
     if (!sourceRef) {
-      throw createCaptureError('Source tab is no longer available', 'source_tab_closed_before_payload');
+      return recoverArticleCapture(article, options);
     }
-    return captureTab(
-      {
-        id: sourceRef,
-        url: article.url,
-      },
-      options
-    );
+
+    try {
+      return await captureTab(
+        {
+          id: sourceRef,
+          url: article.url,
+        },
+        options
+      );
+    } catch (error) {
+      const canRecover =
+        error &&
+        error.code === 'source_tab_closed_before_payload' &&
+        /before capture could start/i.test(error.message || '');
+      if (!canRecover) {
+        throw error;
+      }
+      return recoverArticleCapture(article, options, sourceRef);
+    }
   }
 
   namespace.isUnsupportedCaptureUrl = isUnsupportedCaptureUrl;

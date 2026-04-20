@@ -1944,11 +1944,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   color: var(--muted);
 }
 
-.reading-item.confirming-delete .reading-item-delete-confirm {
+.reading-result-card.confirming-delete .reading-item-delete-confirm {
   display: flex;
 }
 
-.reading-item.confirming-delete .reading-item-actions {
+.reading-result-card.confirming-delete .reading-result-actions {
   display: none;
 }
 

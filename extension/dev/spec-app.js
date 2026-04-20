@@ -76,6 +76,159 @@ test('reading inbox renderer returns medium-density cards with open action and l
   );
 });
 
+test('reading inbox lifecycle filter supports all unread and read states', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const articles = [
+    {
+      id: 'active-1',
+      title: 'Unread article',
+      url: 'https://example.com/unread',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
+      id: 'read-1',
+      title: 'Read article',
+      url: 'https://example.com/read',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'worth_keeping',
+      processing_state: 'ready',
+      lifecycle_state: 'read',
+      saved_at: '2026-04-19T02:00:00.000Z',
+      last_saved_at: '2026-04-19T02:00:00.000Z',
+      last_opened_at: '2026-04-20T02:00:00.000Z',
+    },
+    {
+      id: 'archived-1',
+      title: 'Archived article',
+      url: 'https://example.com/archive',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'skim_later',
+      processing_state: 'ready',
+      lifecycle_state: 'archived',
+      saved_at: '2026-04-18T02:00:00.000Z',
+      last_saved_at: '2026-04-18T02:00:00.000Z',
+      last_opened_at: null,
+    },
+  ];
+
+  const visibleAll = helpers.applyReadingFilters(articles, {
+    search: '',
+    labels: [],
+    source: '',
+    time: '',
+    status: [],
+    lifecycle: 'all',
+  });
+  const visibleUnread = helpers.applyReadingFilters(articles, {
+    search: '',
+    labels: [],
+    source: '',
+    time: '',
+    status: [],
+    lifecycle: 'active',
+  });
+  const visibleRead = helpers.applyReadingFilters(articles, {
+    search: '',
+    labels: [],
+    source: '',
+    time: '',
+    status: [],
+    lifecycle: 'read',
+  });
+
+  assertDeepEqual(
+    visibleAll.map((article) => article.id),
+    ['active-1', 'read-1']
+  );
+  assertDeepEqual(
+    visibleUnread.map((article) => article.id),
+    ['active-1']
+  );
+  assertDeepEqual(
+    visibleRead.map((article) => article.id),
+    ['read-1']
+  );
+});
+
+test('reading inbox filters render all unread and read options', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const html = helpers.renderReadingFiltersHtml(
+    {
+      lifecycle: [
+        { value: 'all', count: 3 },
+        { value: 'active', count: 2 },
+        { value: 'read', count: 1 },
+      ],
+      labels: [],
+      sources: [],
+      times: [],
+      statuses: [],
+    },
+    {
+      search: '',
+      labels: [],
+      source: '',
+      time: '',
+      status: [],
+      lifecycle: 'all',
+    }
+  );
+
+  document.body.innerHTML = `<div id="fixture">${html}</div>`;
+
+  const lifecycleButtons = Array.from(document.querySelectorAll('[data-filter-kind="lifecycle"]')).map((node) =>
+    node.textContent.replace(/\s+/g, ' ').trim()
+  );
+
+  assertDeepEqual(lifecycleButtons, [
+    `${globalThis.TabOutI18n.t('reading.lifecycle.all')} 3`,
+    `${globalThis.TabOutI18n.t('reading.lifecycle.active')} 2`,
+    `${globalThis.TabOutI18n.t('reading.lifecycle.read')} 1`,
+  ]);
+});
+
+test('reading inbox delete confirmation becomes visible when a card enters confirming state', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  document.body.innerHTML = helpers.renderReadingResultCard({
+    id: 'delete-1',
+    title: 'Delete me',
+    url: 'https://example.com/delete',
+    site_name: 'example.com',
+    labels: ['agent'],
+    priority_bucket: 'read_now',
+    processing_state: 'ready',
+    short_reason: 'Pending deletion',
+    reading_time_estimate: 3,
+    saved_at: '2026-04-20T02:00:00.000Z',
+    last_saved_at: '2026-04-20T02:00:00.000Z',
+    lifecycle_state: 'active',
+  });
+
+  const card = document.querySelector('.reading-result-card');
+  const confirmRow = document.querySelector('.reading-item-delete-confirm');
+  const actionsRow = document.querySelector('.reading-result-actions');
+
+  card.classList.add('confirming-delete');
+
+  assertEqual(window.getComputedStyle(confirmRow).display, 'flex');
+  assertEqual(window.getComputedStyle(actionsRow).display, 'none');
+});
+
 test('reading inbox marks legacy articles without new metadata for backfill', () => {
   const helpers = globalThis.TabOutReadingInbox;
   if (!helpers) throw new Error('TabOutReadingInbox missing');
