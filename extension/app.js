@@ -1077,10 +1077,20 @@ function getRetryCheckpointState(processingState) {
   if (processingState === 'capture_failed' || processingState === 'queued' || processingState === 'capturing') {
     return 'queued';
   }
-  if (processingState === 'analysis_failed' || processingState === 'captured' || processingState === 'analyzing' || processingState === 'ready') {
+  if (
+    processingState === 'analysis_failed' ||
+    processingState === 'waiting_for_ai' ||
+    processingState === 'captured' ||
+    processingState === 'analyzing' ||
+    processingState === 'ready'
+  ) {
     return 'captured';
   }
   return processingState || 'queued';
+}
+
+function isAiReadyStatus(aiStatus) {
+  return Boolean(aiStatus && aiStatus.state === 'ready');
 }
 
 function getProcessingTone(processingState) {
@@ -1105,6 +1115,8 @@ function getProcessingLabel(processingState) {
       return t('processing.analyzing');
     case 'ready':
       return t('processing.ready');
+    case 'waiting_for_ai':
+      return t('processing.waiting_for_ai');
     case 'capture_failed':
       return t('processing.capture_failed');
     case 'analysis_failed':
@@ -1123,6 +1135,9 @@ function getShortReason(article) {
   }
   if (article.processing_state === 'analysis_failed') {
     return t('reason.analysisFailed');
+  }
+  if (article.processing_state === 'waiting_for_ai') {
+    return t('reason.waitingForAi');
   }
   if (article.processing_state === 'ready') {
     return t('reason.readyToReopen');
@@ -1199,7 +1214,11 @@ function matchesReadingLifecycle(article, lifecycle) {
 
 function needsReadingMetadataBackfill(article) {
   if (!article) return false;
-  if (['queued', 'capturing', 'captured', 'analyzing', 'capture_failed', 'analysis_failed'].includes(article.processing_state)) {
+  if (
+    ['queued', 'capturing', 'captured', 'analyzing', 'capture_failed', 'analysis_failed', 'waiting_for_ai'].includes(
+      article.processing_state
+    )
+  ) {
     return false;
   }
   const hasLabels = Array.isArray(article.labels) && article.labels.length > 0;
@@ -1423,16 +1442,23 @@ function renderReadingResultsSummaryHtml(totalCount, visibleCount, filterState) 
   `;
 }
 
-function renderReadingResultCard(article) {
+function renderReadingResultCard(article, options = {}) {
   const safeTitle = (article.title || article.url || '').replace(/"/g, '&quot;');
   const safeUrl = (article.url || '').replace(/"/g, '&quot;');
   const processingLabel = getProcessingLabel(article.processing_state);
   const processingTone = getProcessingTone(article.processing_state);
   const reason = getShortReason(article);
-  const isRetryable = ['capture_failed', 'analysis_failed'].includes(article.processing_state);
+  const aiReady = isAiReadyStatus(options.aiStatus) || options.aiReady === true;
+  const isRetryable =
+    ['capture_failed', 'analysis_failed'].includes(article.processing_state) ||
+    (article.processing_state === 'waiting_for_ai' && aiReady);
   const isReadView = article.lifecycle_state === 'read';
   const readingTimeLabel = getReadingTimeLabel(article);
   const labels = (article.labels || []).slice(0, 4);
+  const labelsPlaceholder =
+    article.processing_state === 'waiting_for_ai'
+      ? t('reading.labelsWaitingForAi')
+      : t('reading.labelsPending');
   const labelHtml = []
     .concat(article.lifecycle_state === 'read' ? [`<span class="reading-result-label">${t('reading.lifecycle.read')}</span>`] : [])
     .concat(labels.map((label) => `<span class="reading-result-label">${label}</span>`))
@@ -1457,7 +1483,7 @@ function renderReadingResultCard(article) {
           <span class="reading-item-processing ${processingTone}">${processingLabel}</span>
         </div>
         <div class="reading-result-meta">${metaBits}</div>
-        <div class="reading-result-labels">${labelHtml || `<span class="reading-result-label muted">${t('reading.labelsPending')}</span>`}</div>
+        <div class="reading-result-labels">${labelHtml || `<span class="reading-result-label muted">${labelsPlaceholder}</span>`}</div>
         <p class="reading-result-reason">${reason}</p>
       </div>
       <div class="reading-result-actions">
@@ -1475,7 +1501,7 @@ function renderReadingResultCard(article) {
   `;
 }
 
-function renderReadingResultGroupsHtml(groups) {
+function renderReadingResultGroupsHtml(groups, options = {}) {
   return groups
     .map((group) => `
       <section class="reading-result-group" data-priority-group="${group.id}">
@@ -1484,7 +1510,7 @@ function renderReadingResultGroupsHtml(groups) {
           <span>${t('counts.articles', { count: group.articles.length })}</span>
         </div>
         <div class="reading-result-list">
-          ${group.articles.map(renderReadingResultCard).join('')}
+          ${group.articles.map((article) => renderReadingResultCard(article, options)).join('')}
         </div>
       </section>
     `)
@@ -2289,7 +2315,10 @@ async function renderReadingInboxSurface(options = {}) {
   const articlesRepo = globalThis.TabOutArticlesRepo;
   if (!controller || !articlesRepo) return;
 
-  const activeCount = await articlesRepo.countActiveInboxItems();
+  const [activeCount, aiStatus] = await Promise.all([
+    articlesRepo.countActiveInboxItems(),
+    globalThis.TabOutSettingsRepo ? globalThis.TabOutSettingsRepo.getAiStatus() : Promise.resolve(null),
+  ]);
   controller.setReadingInboxCount(activeCount);
 
   const articles = (await articlesRepo.listArticles())
@@ -2310,7 +2339,7 @@ async function renderReadingInboxSurface(options = {}) {
     renderReadingResultsSummaryHtml(articles.length, visibleArticles.length, readingFilterState)
   );
   controller.renderReadingResultGroups(
-    renderReadingResultGroupsHtml(groups),
+    renderReadingResultGroupsHtml(groups, { aiStatus }),
     articles.length === 0
       ? t('reading.emptyActive')
       : readingFilterState.lifecycle === 'read' && visibleArticles.length === 0
@@ -2417,6 +2446,9 @@ function getDebugStageLabel(item) {
   if (item.processing_state === 'ready') {
     return t('processing.ready');
   }
+  if (item.processing_state === 'waiting_for_ai') {
+    return t('processing.waiting_for_ai');
+  }
   if (item.processing_state === 'analyzing') {
     return t('processing.analyzing');
   }
@@ -2430,9 +2462,13 @@ function getDebugStageLabel(item) {
 
 function buildDebugItems({ articles, jobs, aiStatus, preheatEntries: entries }) {
   const hostText = (aiStatus && aiStatus.host) || t('debug.noAiHost');
+  const aiReady = isAiReadyStatus(aiStatus);
   const articleItems = (articles || []).map((article) => {
     const job = (jobs || []).find((item) => item.article_id === article.id) || null;
-    const errorMessage = article.last_error_message || job?.last_error_message || t('debug.noRecentError');
+    const errorMessage =
+      article.processing_state === 'waiting_for_ai'
+        ? t('debug.waitingForAi')
+        : article.last_error_message || job?.last_error_message || t('debug.noRecentError');
     const errorCode = article.last_error_code || job?.last_error_code || null;
     const meta = [
       getDebugStageLabel(article),
@@ -2449,6 +2485,8 @@ function buildDebugItems({ articles, jobs, aiStatus, preheatEntries: entries }) 
       title: article.title || article.url,
       stage: article.processing_state === 'ready'
         ? 'ready'
+        : article.processing_state === 'waiting_for_ai'
+          ? 'waiting'
         : ['analysis_failed', 'capture_failed'].includes(article.processing_state)
           ? 'failed'
           : article.processing_state === 'analyzing'
@@ -2460,7 +2498,9 @@ function buildDebugItems({ articles, jobs, aiStatus, preheatEntries: entries }) 
       errorMessage,
       updatedAt: article.updated_at || article.last_saved_at || article.saved_at || null,
       meta,
-      retryable: ['capture_failed', 'analysis_failed'].includes(article.processing_state),
+      retryable:
+        ['capture_failed', 'analysis_failed'].includes(article.processing_state) ||
+        (article.processing_state === 'waiting_for_ai' && aiReady),
       articleId: article.id,
     };
   });
@@ -2554,8 +2594,10 @@ async function loadSettingsSurface() {
     languagePreferenceInput.value = settings.language_preference || 'auto';
   }
 
-  if (status.state === 'ready' || status.state === 'saved') {
+  if (status.state === 'ready') {
     setSettingsStatus(t('settings.status.ready', { host: status.host }));
+  } else if (status.state === 'saved') {
+    setSettingsStatus(t('settings.status.saved', { host: status.host }));
   } else if (status.state === 'failed') {
     setSettingsStatus(t('settings.status.failed', { error: status.last_error }));
   } else {
@@ -3073,6 +3115,7 @@ document.addEventListener('click', async (e) => {
         throw new Error(result && result.error ? result.error : 'Connection test failed');
       }
       await loadSettingsSurface();
+      await renderReadingInboxSurface({ includeDebug: false });
       showToast(t('toast.aiConnectionReady'));
     } catch (error) {
       setSettingsStatus(t('settings.status.failed', { error: error.message }));

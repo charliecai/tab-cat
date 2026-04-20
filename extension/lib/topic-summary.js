@@ -25,11 +25,15 @@
       articles[0];
 
     if (!selectedArticle.main_topic_id) {
+      const fallbackTitle =
+        selectedArticle.site_name || selectedArticle.title || t('section.topicOverview');
       return {
         kind: 'fallback',
-        title: t('section.topicOverview'),
-        lead: t('topic.fallbackLead'),
-        body: t('topic.fallbackBody'),
+        title: fallbackTitle,
+        lead: selectedArticle.title || t('topic.fallbackLead'),
+        body: selectedArticle.site_name
+          ? t('topic.fallbackBodyWithSource', { site: selectedArticle.site_name })
+          : t('topic.fallbackBody'),
       };
     }
 

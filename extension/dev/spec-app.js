@@ -108,6 +108,36 @@ test('reading inbox read cards keep read as the terminal state without archive a
   ]);
 });
 
+test('waiting_for_ai cards hide retry before AI is ready and show it after readiness', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const article = {
+    id: 'waiting-ai-1',
+    title: 'Saved without AI',
+    url: 'https://example.com/waiting-ai',
+    site_name: 'example.com',
+    labels: [],
+    priority_bucket: null,
+    processing_state: 'waiting_for_ai',
+    short_reason: null,
+    reading_time_estimate: 5,
+    saved_at: '2026-04-20T02:00:00.000Z',
+    last_saved_at: '2026-04-20T02:00:00.000Z',
+    lifecycle_state: 'active',
+  };
+
+  document.body.innerHTML = `<div id="fixture">${helpers.renderReadingResultCard(article, { aiReady: false })}</div>`;
+  assertEqual(Boolean(document.querySelector('[data-action="retry-article"]')), false);
+  assertEqual(
+    document.querySelector('.reading-result-reason').textContent.trim(),
+    globalThis.TabOutI18n.t('reason.waitingForAi')
+  );
+
+  document.body.innerHTML = `<div id="fixture">${helpers.renderReadingResultCard(article, { aiReady: true })}</div>`;
+  assertEqual(Boolean(document.querySelector('[data-action="retry-article"]')), true);
+});
+
 test('reading inbox lifecycle filter supports all unread and read states', () => {
   const helpers = globalThis.TabOutReadingInbox;
   if (!helpers) throw new Error('TabOutReadingInbox missing');

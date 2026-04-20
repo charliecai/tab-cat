@@ -2,6 +2,8 @@
   const namespace = (globalThis.TabOutJobsRunner = globalThis.TabOutJobsRunner || {});
   const RUNNER_CONCURRENCY = 2;
   const RUNNER_THRESHOLD_MS = 90 * 1000;
+  const WAITING_FOR_AI_MESSAGE =
+    'AI settings are not ready yet. Test the saved connection, then retry this article.';
   let inFlight = 0;
   let kickScheduled = false;
 
@@ -143,9 +145,19 @@
     const settings = await globalThis.TabOutSettingsRepo.getAiSettings();
     const validation = globalThis.TabOutAiClient.validateAiSettings(settings);
     if (!validation.isValid) {
-      const error = new Error(validation.errors.join(', '));
-      error.code = 'invalid_ai_settings';
-      throw error;
+      const nextArticle = await globalThis.TabOutArticlesRepo.updateArticle(article.id, {
+        processing_state: 'waiting_for_ai',
+        last_error_code: null,
+        last_error_message: WAITING_FOR_AI_MESSAGE,
+      });
+      await globalThis.TabOutJobsRepo.updateJob(job.id, {
+        processing_state: 'waiting_for_ai',
+        last_error_code: null,
+        last_error_message: WAITING_FOR_AI_MESSAGE,
+        next_retry_at: null,
+      });
+      await notifyDataChanged();
+      return { article: nextArticle, deferred: true };
     }
 
     const analysis = await globalThis.TabOutArticleAnalysis.analyzeArticle(

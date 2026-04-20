@@ -70,6 +70,10 @@
         },
         status: {
           notConfigured: 'Not configured',
+          saved: ({ host }) =>
+            host
+              ? `Saved · ${host} · Test connection before retry becomes available`
+              : 'Saved · Test connection before retry becomes available',
           ready: ({ host }) => (host ? `Ready · ${host}` : 'Ready'),
           failed: ({ error }) => (error ? `Last request failed · ${error}` : 'Last request failed'),
           testing: 'Testing connection…',
@@ -115,6 +119,7 @@
         resultsPlaceholder: 'Narrow the queue on the left and reopen the right article from here.',
         searchPlaceholder: 'Search title or site',
         labelsPending: 'Analyzing',
+        labelsWaitingForAi: 'Waiting for AI',
         clearFilters: 'Clear filters',
         resultsCount: ({ count, total }) => `${count} of ${total} articles`,
         readingTimeMinutes: ({ count }) => `${count} min read`,
@@ -158,6 +163,8 @@
         emptyBody: 'Save an article from Now and topic guidance will appear here.',
         fallbackLead: 'Content is saved, but topic guidance is waiting on analysis or AI configuration.',
         fallbackBody: 'The left queue still tracks the item so you can retry or continue once analysis is available.',
+        fallbackBodyWithSource: ({ site }) =>
+          `Saved from ${site}. Topic guidance will appear after AI analysis is ready.`,
         defaultTitle: 'Topic',
         defaultLead: 'A lightweight topic view derived from analyzed articles.',
         defaultBody: 'Use this panel to decide what to read next, not to dump full article detail.',
@@ -217,6 +224,7 @@
         assigning: 'Assigning',
         assigned: 'Ready',
         ready: 'Ready',
+        waiting_for_ai: 'Waiting for AI',
         capture_failed: 'Capture failed',
         analysis_failed: 'Analysis failed',
         assignment_failed: 'Assignment failed',
@@ -235,6 +243,7 @@
         readyInTopic: 'Ready inside its current topic.',
         readyForTopicReview: 'Ready for topic review.',
         readyToReopen: 'Ready to reopen when you are.',
+        waitingForAi: 'Saved locally. Retry becomes available after AI is tested successfully.',
         waitingForPipeline: 'Waiting for the background pipeline.',
       },
       debug: {
@@ -243,6 +252,7 @@
         emptyBody: 'Recent article jobs, errors, host usage, and retry controls will appear here.',
         noRecentError: 'No recent error',
         noAiHost: 'No AI host',
+        waitingForAi: 'Waiting for AI setup to be tested successfully before retry is allowed.',
         analyzedAgo: ({ time }) => ` · analyzed ${time}`,
         stagePrefetch: 'Prefetch',
         sourceUnknown: 'source: background',
@@ -366,6 +376,10 @@
         },
         status: {
           notConfigured: '未配置',
+          saved: ({ host }) =>
+            host
+              ? `已保存 · ${host} · 测试成功前不会开放重试`
+              : '已保存 · 测试成功前不会开放重试',
           ready: ({ host }) => (host ? `已就绪 · ${host}` : '已就绪'),
           failed: ({ error }) => (error ? `上次请求失败 · ${error}` : '上次请求失败'),
           testing: '正在测试连接…',
@@ -411,6 +425,7 @@
         resultsPlaceholder: '先在左侧收窄范围，再从这里重新打开要读的文章。',
         searchPlaceholder: '搜索标题或站点',
         labelsPending: '分析中',
+        labelsWaitingForAi: '等待 AI',
         clearFilters: '清空筛选',
         resultsCount: ({ count, total }) => `${count} / ${total} 篇文章`,
         readingTimeMinutes: ({ count }) => `${count} 分钟阅读`,
@@ -454,6 +469,7 @@
         emptyBody: '从“当前”里保存一篇文章后，这里就会出现主题指引。',
         fallbackLead: '内容已经保存，但主题指引还在等待分析或 AI 配置完成。',
         fallbackBody: '左侧队列仍会保留该条目，等分析可用后你可以继续或重试。',
+        fallbackBodyWithSource: ({ site }) => `内容已从 ${site} 保存，等 AI 分析可用后这里会出现主题指引。`,
         defaultTitle: '主题',
         defaultLead: '这是一个基于已分析文章生成的轻量主题视图。',
         defaultBody: '用这个面板来决定下一篇读什么，而不是把完整文章细节堆在这里。',
@@ -513,6 +529,7 @@
         assigning: '归类中',
         assigned: '已就绪',
         ready: '已就绪',
+        waiting_for_ai: '等待 AI',
         capture_failed: '抓取失败',
         analysis_failed: '分析失败',
         assignment_failed: '归类失败',
@@ -531,6 +548,7 @@
         readyInTopic: '已经可以在当前主题中处理。',
         readyForTopicReview: '可以开始查看主题。',
         readyToReopen: '随时可以重新打开继续阅读。',
+        waitingForAi: '已完成本地保存。等 AI 测试成功后，这里才会开放重试。',
         waitingForPipeline: '等待后台处理流程完成。',
       },
       debug: {
@@ -539,6 +557,7 @@
         emptyBody: '最近的文章任务、错误、主机使用情况和重试入口会显示在这里。',
         noRecentError: '最近没有错误',
         noAiHost: '暂无 AI 主机',
+        waitingForAi: '等待 AI 设置测试成功后，才允许重试。',
         analyzedAgo: ({ time }) => ` · 分析于 ${time}`,
         stagePrefetch: '预抓取',
         sourceUnknown: '来源：后台',
