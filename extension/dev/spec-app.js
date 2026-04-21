@@ -601,6 +601,20 @@ test('reading inbox label filters toggle the labels state and rerender filtered 
       last_opened_at: null,
     },
     {
+      id: 'tag-1b',
+      title: 'Pricing launch memo',
+      url: 'https://example.com/pricing-memo',
+      site_name: 'example.com',
+      labels: ['pricing'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      short_reason: 'Useful',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T04:00:00.000Z',
+      last_saved_at: '2026-04-20T04:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
       id: 'tag-2',
       title: 'Design notes',
       url: 'https://design.example.com/notes',
@@ -665,6 +679,21 @@ test('reading inbox label filters toggle the labels state and rerender filtered 
     true
   );
   assertEqual(document.querySelector('[data-filter-kind="label"][data-filter-value="agent"]').classList.contains('active'), true);
+
+  document
+    .querySelector('[data-filter-kind="label"][data-filter-value="pricing"]')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await waitForTick();
+  await waitForTick();
+
+  assertEqual(document.getElementById('readingResultsGroups').textContent.includes('Agent pricing changes'), true);
+  assertEqual(document.getElementById('readingResultsGroups').textContent.includes('Pricing launch memo'), false);
+  assertEqual(document.getElementById('readingResultsGroups').textContent.includes('Design notes'), false);
+  assertEqual(
+    Array.from(document.querySelectorAll('.reading-active-filter')).some((node) => node.textContent.trim() === 'pricing'),
+    true
+  );
+  assertEqual(document.querySelector('[data-filter-kind="label"][data-filter-value="pricing"]').classList.contains('active'), true);
 });
 
 test('reading inbox delete confirmation becomes visible when a card enters confirming state', () => {

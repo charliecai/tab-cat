@@ -1314,7 +1314,7 @@ function applyReadingFilters(articles, filterState) {
       const haystack = `${article.title || ''} ${article.url || ''} ${getArticleSource(article)}`.toLowerCase();
       if (!haystack.includes(query)) return false;
     }
-    if (filterState.labels.length > 0 && !filterState.labels.some((label) => (article.labels || []).includes(label))) {
+    if (filterState.labels.length > 0 && !filterState.labels.every((label) => (article.labels || []).includes(label))) {
       return false;
     }
     if (filterState.source && getArticleSource(article) !== filterState.source) {
