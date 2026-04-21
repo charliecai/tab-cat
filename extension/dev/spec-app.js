@@ -130,12 +130,20 @@ test('waiting_for_ai cards hide retry before AI is ready and show it after readi
   document.body.innerHTML = `<div id="fixture">${helpers.renderReadingResultCard(article, { aiReady: false })}</div>`;
   assertEqual(Boolean(document.querySelector('[data-action="retry-article"]')), false);
   assertEqual(
-    document.querySelector('.reading-result-reason').textContent.trim(),
-    globalThis.TabOutI18n.t('reason.waitingForAi')
+    Boolean(document.querySelector('.reading-result-reason')),
+    false
+  );
+  assertEqual(
+    document.querySelector('.reading-item-processing').getAttribute('title'),
+    globalThis.TabOutI18n.t('statusDetail.waitingForAiBlocked')
   );
 
   document.body.innerHTML = `<div id="fixture">${helpers.renderReadingResultCard(article, { aiReady: true })}</div>`;
   assertEqual(Boolean(document.querySelector('[data-action="retry-article"]')), true);
+  assertEqual(
+    document.querySelector('[data-action="retry-article"]').textContent.trim(),
+    globalThis.TabOutI18n.t('actions.resumeAnalysis')
+  );
 });
 
 test('reading inbox lifecycle filter supports all unread and read states', () => {
@@ -437,6 +445,69 @@ test('reading inbox retry rerenders queued state before background kick resolves
   assertEqual(enqueuedJob.processing_state, 'queued');
   assertEqual(document.querySelector('.reading-item-processing').textContent.trim(), globalThis.TabOutI18n.t('processing.queued'));
   assertEqual(document.querySelectorAll('[data-action="retry-article"]').length, 0);
+});
+
+test('failed cards expose hover detail and specific retry actions', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const captureFailed = {
+    id: 'capture-failed-1',
+    title: 'Capture failed',
+    url: 'https://example.com/capture-failed',
+    site_name: 'example.com',
+    labels: [],
+    priority_bucket: null,
+    processing_state: 'capture_failed',
+    last_error_code: 'source_tab_closed_before_payload',
+    lifecycle_state: 'active',
+    saved_at: '2026-04-20T02:00:00.000Z',
+    last_saved_at: '2026-04-20T02:00:00.000Z',
+  };
+  const analysisFailed = {
+    id: 'analysis-failed-1',
+    title: 'Analysis failed',
+    url: 'https://example.com/analysis-failed',
+    site_name: 'example.com',
+    labels: [],
+    priority_bucket: null,
+    processing_state: 'analysis_failed',
+    last_error_code: 'invalid_analysis_payload',
+    lifecycle_state: 'active',
+    saved_at: '2026-04-20T02:00:00.000Z',
+    last_saved_at: '2026-04-20T02:00:00.000Z',
+  };
+
+  document.body.innerHTML = `
+    <div id="fixture">
+      ${helpers.renderReadingResultCard(captureFailed, {
+        jobsByArticleId: {
+          [captureFailed.id]: {
+            article_id: captureFailed.id,
+            next_retry_at: '2026-04-20T02:05:00.000Z',
+          },
+        },
+      })}
+      ${helpers.renderReadingResultCard(analysisFailed, { aiReady: true })}
+    </div>
+  `;
+
+  const buttons = Array.from(document.querySelectorAll('[data-action="retry-article"]')).map((node) =>
+    node.textContent.trim()
+  );
+  const tooltips = Array.from(document.querySelectorAll('.reading-item-processing')).map((node) =>
+    node.getAttribute('title')
+  );
+
+  assertDeepEqual(buttons, [
+    globalThis.TabOutI18n.t('actions.retryCapture'),
+    globalThis.TabOutI18n.t('actions.retryAnalysis'),
+  ]);
+  assertEqual(tooltips[0].includes(globalThis.TabOutI18n.t('statusReason.source_tab_closed_before_payload')), true);
+  assertEqual(tooltips[0].includes(globalThis.TabOutI18n.t('statusDetail.retryCaptureAction')), true);
+  assertEqual(tooltips[1].includes(globalThis.TabOutI18n.t('statusReason.invalid_analysis_payload')), true);
+  assertEqual(tooltips[1].includes(globalThis.TabOutI18n.t('statusDetail.retryAnalysisAction')), true);
+  assertEqual(document.querySelectorAll('.reading-result-reason').length, 0);
 });
 
 test('reading inbox open action persists last_opened_at before opening the source tab', async () => {

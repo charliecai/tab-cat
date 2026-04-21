@@ -57,7 +57,7 @@
     }
 
     const passed = tests.length - failed;
-    lines.unshift(`Tab Out specs: ${passed} passed, ${failed} failed`);
+    lines.unshift(`Tab Cat specs: ${passed} passed, ${failed} failed`);
     window.__tabOutSpecResults = { lines, passed, failed };
     output.textContent = lines.join('\n');
     document.body.dataset.failures = String(failed);

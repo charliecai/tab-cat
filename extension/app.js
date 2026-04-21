@@ -1126,6 +1126,48 @@ function getProcessingLabel(processingState) {
   }
 }
 
+function getRetryActionLabel(article, aiReady) {
+  if (article.processing_state === 'capture_failed') {
+    return t('actions.retryCapture');
+  }
+  if (article.processing_state === 'analysis_failed') {
+    return t('actions.retryAnalysis');
+  }
+  if (article.processing_state === 'waiting_for_ai' && aiReady) {
+    return t('actions.resumeAnalysis');
+  }
+  return t('actions.retry');
+}
+
+function getInlineReason(article) {
+  return article.processing_state === 'ready' ? getShortReason(article) : '';
+}
+
+function getStatusDetailLabel(article, job, aiReady) {
+  const retryTime = job && job.next_retry_at ? timeAgo(job.next_retry_at) : '';
+
+  switch (article.processing_state) {
+    case 'waiting_for_ai':
+      return aiReady
+        ? t('statusDetail.waitingForAiReady')
+        : t('statusDetail.waitingForAiBlocked');
+    case 'capture_failed':
+      return t('statusDetail.captureFailed', {
+        reason: t(`statusReason.${article.last_error_code || 'unknown_error'}`),
+        retry: retryTime ? t('statusDetail.autoRetryAt', { time: retryTime }) : t('statusDetail.manualRetry'),
+        action: t('statusDetail.retryCaptureAction'),
+      });
+    case 'analysis_failed':
+      return t('statusDetail.analysisFailed', {
+        reason: t(`statusReason.${article.last_error_code || 'unknown_error'}`),
+        retry: retryTime ? t('statusDetail.autoRetryAt', { time: retryTime }) : t('statusDetail.manualRetry'),
+        action: t('statusDetail.retryAnalysisAction'),
+      });
+    default:
+      return '';
+  }
+}
+
 function getShortReason(article) {
   if (article.short_reason) {
     return article.short_reason;
@@ -1447,8 +1489,11 @@ function renderReadingResultCard(article, options = {}) {
   const safeUrl = (article.url || '').replace(/"/g, '&quot;');
   const processingLabel = getProcessingLabel(article.processing_state);
   const processingTone = getProcessingTone(article.processing_state);
-  const reason = getShortReason(article);
   const aiReady = isAiReadyStatus(options.aiStatus) || options.aiReady === true;
+  const relatedJob = (options.jobsByArticleId && options.jobsByArticleId[article.id]) || null;
+  const statusDetail = getStatusDetailLabel(article, relatedJob, aiReady);
+  const safeStatusDetail = statusDetail.replace(/"/g, '&quot;');
+  const reason = getInlineReason(article);
   const isRetryable =
     ['capture_failed', 'analysis_failed'].includes(article.processing_state) ||
     (article.processing_state === 'waiting_for_ai' && aiReady);
@@ -1468,7 +1513,7 @@ function renderReadingResultCard(article, options = {}) {
     ? ''
     : `<button class="reading-item-action" type="button" data-action="mark-article-read" data-article-id="${article.id}">${t('actions.markRead')}</button>`;
   const retryAction = isRetryable
-    ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${t('actions.retry')}</button>`
+    ? `<button class="reading-item-action" type="button" data-action="retry-article" data-article-id="${article.id}">${getRetryActionLabel(article, aiReady)}</button>`
     : '';
   const metaBits = [getArticleSource(article), timeAgo(article.last_saved_at || article.saved_at), readingTimeLabel]
     .filter(Boolean)
@@ -1480,11 +1525,11 @@ function renderReadingResultCard(article, options = {}) {
       <div class="reading-result-main">
         <div class="reading-result-heading">
           <button class="reading-result-title" type="button" data-action="open-article-source" data-article-url="${safeUrl}" title="${safeTitle}">${article.title || article.url}</button>
-          <span class="reading-item-processing ${processingTone}">${processingLabel}</span>
+          <span class="reading-item-processing ${processingTone}" ${statusDetail ? `title="${safeStatusDetail}"` : ''}>${processingLabel}</span>
         </div>
         <div class="reading-result-meta">${metaBits}</div>
         <div class="reading-result-labels">${labelHtml || `<span class="reading-result-label muted">${labelsPlaceholder}</span>`}</div>
-        <p class="reading-result-reason">${reason}</p>
+        ${reason ? `<p class="reading-result-reason">${reason}</p>` : ''}
       </div>
       <div class="reading-result-actions">
         ${primaryAction}
@@ -2318,9 +2363,10 @@ async function renderReadingInboxSurface(options = {}) {
   const articlesRepo = globalThis.TabOutArticlesRepo;
   if (!controller || !articlesRepo) return;
 
-  const [activeCount, aiStatus] = await Promise.all([
+  const [activeCount, aiStatus, jobs] = await Promise.all([
     articlesRepo.countActiveInboxItems(),
     globalThis.TabOutSettingsRepo ? globalThis.TabOutSettingsRepo.getAiStatus() : Promise.resolve(null),
+    globalThis.TabOutJobsRepo ? globalThis.TabOutJobsRepo.listJobs() : Promise.resolve([]),
   ]);
   controller.setReadingInboxCount(activeCount);
 
@@ -2342,7 +2388,10 @@ async function renderReadingInboxSurface(options = {}) {
     renderReadingResultsSummaryHtml(articles.length, visibleArticles.length, readingFilterState)
   );
   controller.renderReadingResultGroups(
-    renderReadingResultGroupsHtml(groups, { aiStatus }),
+    renderReadingResultGroupsHtml(groups, {
+      aiStatus,
+      jobsByArticleId: Object.fromEntries((jobs || []).map((job) => [job.article_id, job])),
+    }),
     articles.length === 0
       ? t('reading.emptyActive')
       : readingFilterState.lifecycle === 'read' && visibleArticles.length === 0

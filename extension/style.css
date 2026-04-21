@@ -1727,6 +1727,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  cursor: help;
 }
 
 .reading-item-processing.pending {
