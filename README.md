@@ -23,7 +23,7 @@ The extension is local-first. There is no server to run and no account to create
 1. Clone the repo:
 
 ```bash
-git clone https://github.com/zarazhangrui/tab-out.git tab-cat
+git clone https://github.com/charliecai/tab-cat.git
 cd tab-cat
 ```
 
@@ -51,7 +51,7 @@ After that, opening a new tab will show Tab Cat.
 
 ## Acknowledgements
 
-- Thanks to the original [Tab Cat inspiration repo](https://github.com/zarazhangrui/tab-out) for the idea behind this project.
+- Thanks to [zarazhangrui/tab-out](https://github.com/zarazhangrui/tab-out) for the original inspiration behind this project.
 - Thanks to [RouteCat](https://routecat.io) for providing the Claude and Codex relay API used during development.
 
 ## License
