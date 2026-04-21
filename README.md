@@ -1,5 +1,7 @@
 # Tab Cat
 
+[中文](./README.zh-CN.md)
+
 **Keep your tabs tidy, fast, and visible.**
 
 Tab Cat is a Chrome extension that replaces the new tab page with a calm dashboard for everything you already have open. It groups live tabs by domain, highlights duplicates, gives homepages their own cleanup lane, and adds a lightweight reading inbox for article-like tabs you want to process later.
