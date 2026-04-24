@@ -3,7 +3,6 @@
   "name": "Tab Cat",
   "version": "1.0",
   "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain and lets you close them with style.",
-  "author": "charliec",
   "permissions": ["tabs", "activeTab", "storage", "scripting"],
   "host_permissions": ["<all_urls>"],
   "chrome_url_overrides": { "newtab": "index.html" },

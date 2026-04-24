@@ -10,4 +10,3 @@ extension/config.local.js
 .gstack/
 .serena/
 test-results/
-dist/
