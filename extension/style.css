@@ -18,12 +18,14 @@
   --status-abandoned: #b35a5a;
   --card-bg: #fffdf9;
   --shadow: rgba(26, 22, 19, 0.06);
+  --font-body: "Avenir Next", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   background: var(--paper);
   color: var(--ink);
   min-height: 100vh;
@@ -64,7 +66,7 @@ header {
 }
 
 .header-left h1 {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-weight: 300;
   font-size: 28px;
   letter-spacing: -0.5px;
@@ -126,7 +128,7 @@ header {
 }
 
 .tab-cleanup-btn {
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   font-size: 12px;
   font-weight: 600;
   padding: 8px 20px;
@@ -193,7 +195,7 @@ header {
 }
 
 .section-header h2 {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-weight: 400;
   font-size: 18px;
   font-style: italic;
@@ -476,7 +478,7 @@ header {
 
 .mission-page-count {
   font-size: 20px;
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-weight: 300;
   color: var(--ink);
   line-height: 1;
@@ -498,7 +500,7 @@ header {
 
 .action-btn {
   font-size: 11px;
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   font-weight: 500;
   padding: 5px 14px;
   border-radius: 4px;
@@ -571,7 +573,7 @@ header {
   transform: translateX(-50%) translateY(80px);
   background: var(--ink);
   color: var(--paper);
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
   padding: 12px 24px;
@@ -617,7 +619,7 @@ footer {
 }
 
 .stat-num {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 28px;
   font-weight: 300;
   color: var(--ink);
@@ -639,7 +641,7 @@ footer {
 }
 
 .refresh-btn {
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   font-size: 11px;
   font-weight: 500;
   color: var(--accent-amber);
@@ -740,7 +742,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .empty-title {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 20px;
   font-weight: 400;
   font-style: italic;
@@ -824,7 +826,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 /* "Update now" button — small, filled, sage green */
 .update-banner-btn {
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   font-size: 12px;
   font-weight: 500;
   color: #fff;
@@ -907,7 +909,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 .reading-item-action,
 .settings-close,
 .settings-test-button {
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
 }
 
 .mode-switcher-btn {
@@ -1282,7 +1284,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 
 .pinned-dialog-header h2 {
   margin: 0;
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 28px;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -1417,7 +1419,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .reading-filter-search input {
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   width: 100%;
   padding: 10px 12px;
@@ -1598,7 +1600,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   background: none;
   padding: 0;
   text-align: left;
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 22px;
   line-height: 1.2;
   color: var(--ink);
@@ -1707,7 +1709,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   background: none;
   padding: 0;
   text-align: left;
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 18px;
   line-height: 1.25;
   color: var(--ink);
@@ -1798,7 +1800,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .topic-panel-lead {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 22px;
   line-height: 1.35;
   color: var(--ink);
@@ -1828,7 +1830,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .topic-summary-heading h3 {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 20px;
   font-weight: 400;
   color: var(--ink);
@@ -1873,7 +1875,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .settings-drawer-header h2 {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 28px;
   font-weight: 400;
   margin-bottom: 4px;
@@ -1893,7 +1895,7 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
 }
 
 .settings-block h3 {
-  font-family: 'Newsreader', serif;
+  font-family: var(--font-display);
   font-size: 20px;
   font-weight: 400;
   color: var(--ink);
