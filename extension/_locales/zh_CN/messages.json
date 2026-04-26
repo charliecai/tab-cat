@@ -1,0 +1,10 @@
+{
+  "extensionName": {
+    "message": "Tab Cat",
+    "description": "扩展名称。"
+  },
+  "extensionDescription": {
+    "message": "把新标签页变成安静的标签页仪表盘，支持按域名分组、重复页清理、固定入口和本地阅读收件箱。",
+    "description": "显示在浏览器扩展界面和商店元数据中的简短描述。"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extensionName": {
+    "message": "Tab Cat",
+    "description": "Extension name."
+  },
+  "extensionDescription": {
+    "message": "Keep tabs on your tabs with a calm new tab dashboard, duplicate cleanup, pinned shortcuts, and a local reading inbox.",
+    "description": "Short extension description shown in browser extension surfaces and store metadata."
+  }
+}
