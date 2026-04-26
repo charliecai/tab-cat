@@ -35,6 +35,8 @@ AI analysis is optional. If you choose to configure an OpenAI-compatible provide
 
 Tab Cat is built for people who keep too many tabs open but still want their browser to feel calm, fast, and under control.
 
+Tab Cat is derived from the open-source project at https://github.com/zarazhangrui/tab-out.
+
 ### Search Keywords
 
 tabs, tab manager, new tab, duplicate tabs, reading list, reading inbox, productivity, browser cleanup
@@ -71,6 +73,8 @@ Tab Cat 是本地优先的扩展。它不需要 Tab Cat 账号，也没有 Tab C
 AI 分析是可选功能。只有当你在 Settings 中配置 OpenAI 兼容服务后，Tab Cat 才会把抓取到的文章正文直接从浏览器发送到你填写的 HTTPS provider host。不配置 AI 时，标签页仪表盘、重复页清理、固定入口和阅读收件箱依然可以在本地正常使用。
 
 Tab Cat 适合经常打开很多标签页、但又希望浏览器保持清爽和可控的人。
+
+Tab Cat 衍生自开源项目：https://github.com/zarazhangrui/tab-out。
 
 ### 搜索关键词
 
