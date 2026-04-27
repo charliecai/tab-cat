@@ -4,6 +4,7 @@ importScripts(
   'lib/settings-repo.js',
   'lib/i18n.js',
   'lib/articles-repo.js',
+  'lib/action-controller.js',
   'lib/topics-repo.js',
   'lib/jobs-repo.js',
   'lib/ai-client.js',
@@ -14,32 +15,7 @@ importScripts(
 );
 
 async function updateBadge() {
-  try {
-    const tabs = await chrome.tabs.query({});
-    const count = tabs.filter((tab) => {
-      const url = tab.url || '';
-      return (
-        !url.startsWith('chrome://') &&
-        !url.startsWith('chrome-extension://') &&
-        !url.startsWith('about:') &&
-        !url.startsWith('edge://') &&
-        !url.startsWith('brave://')
-      );
-    }).length;
-
-    await chrome.action.setBadgeText({ text: count > 0 ? String(count) : '' });
-    if (!count) return;
-
-    let color = '#3d7a4a';
-    if (count > 20) {
-      color = '#b35a5a';
-    } else if (count > 10) {
-      color = '#b8892e';
-    }
-    await chrome.action.setBadgeBackgroundColor({ color });
-  } catch {
-    chrome.action.setBadgeText({ text: '' });
-  }
+  await globalThis.TabOutActionController.updateCurrentTabInboxBadge(chrome, globalThis.TabOutArticlesRepo);
 }
 
 async function initializeWorker() {
@@ -61,6 +37,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         await globalThis.TabOutJobsRunner.kick();
         sendResponse({ ok: true });
       })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error.message });
+      });
+    return true;
+  }
+
+  if (message.type === 'tabout:badge:refresh') {
+    updateBadge()
+      .then(() => sendResponse({ ok: true }))
       .catch((error) => {
         sendResponse({ ok: false, error: error.message });
       });
@@ -118,6 +103,10 @@ chrome.tabs.onCreated.addListener(() => {
   updateBadge();
 });
 
+chrome.tabs.onActivated.addListener(() => {
+  updateBadge();
+});
+
 chrome.tabs.onRemoved.addListener(() => {
   updateBadge();
 });
@@ -125,6 +114,18 @@ chrome.tabs.onRemoved.addListener(() => {
 chrome.tabs.onUpdated.addListener(() => {
   updateBadge();
 });
+
+chrome.action.onClicked.addListener(() => {
+  globalThis.TabOutActionController.openTabCatHome(chrome).catch((error) => {
+    console.warn('[tab-out] failed to open Tab Cat home:', error);
+  });
+});
+
+if (chrome.windows && chrome.windows.onFocusChanged) {
+  chrome.windows.onFocusChanged.addListener(() => {
+    updateBadge();
+  });
+}
 
 updateBadge();
 initializeWorker();

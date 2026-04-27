@@ -2415,6 +2415,14 @@ async function kickBackgroundJobs() {
   }
 }
 
+async function refreshActionBadge() {
+  try {
+    await chrome.runtime.sendMessage({ type: 'tabout:badge:refresh' });
+  } catch (error) {
+    console.warn('[tab-out] Failed to refresh action badge:', error);
+  }
+}
+
 function getAiSettingsDraft() {
   return {
     base_url: document.getElementById('settingsBaseUrl')?.value.trim() || '',
@@ -3258,7 +3266,7 @@ document.addEventListener('click', async (e) => {
         playEffects: true,
         playSound: true,
       });
-      await Promise.all([kickBackgroundJobs(), renderReadingInboxSurface()]);
+      await Promise.all([kickBackgroundJobs(), renderReadingInboxSurface(), refreshActionBadge()]);
       if (result.deduped) {
         showToast(result.requeued ? t('toast.alreadySavedRequeued') : t('toast.alreadySaved'));
       } else {
@@ -3312,7 +3320,7 @@ document.addEventListener('click', async (e) => {
 
     await globalThis.TabOutArticlesRepo.deleteArticlePermanently(articleId);
 
-    await renderReadingInboxSurface();
+    await Promise.all([renderReadingInboxSurface(), refreshActionBadge()]);
     showToast(t('toast.deleted'));
     return;
   }
