@@ -21,19 +21,22 @@ test('action controller opens the Tab Cat homepage in a new tab', async () => {
   assertDeepEqual(createdTabs, [{ url: 'chrome-extension://tabcat/index.html' }]);
 });
 
-test('action controller shows an inbox badge symbol for the current saved link', async () => {
+test('action controller shows a saved-state icon for the current saved link', async () => {
   const controller = globalThis.TabOutActionController;
   if (!controller) throw new Error('TabOutActionController missing');
 
   const badgeTextCalls = [];
-  const badgeColorCalls = [];
+  const iconCalls = [];
   const fakeChrome = {
     action: {
       async setBadgeText(details) {
         badgeTextCalls.push(details);
       },
-      async setBadgeBackgroundColor(details) {
-        badgeColorCalls.push(details);
+      async setBadgeBackgroundColor() {
+        throw new Error('Badge background should not be used for saved-state icons');
+      },
+      async setIcon(details) {
+        iconCalls.push(details);
       },
     },
     tabs: {
@@ -52,15 +55,23 @@ test('action controller shows an inbox badge symbol for the current saved link',
 
   await controller.updateCurrentTabInboxBadge(fakeChrome, fakeArticlesRepo);
 
-  assertDeepEqual(badgeTextCalls, [{ text: '✓' }]);
-  assertDeepEqual(badgeColorCalls, [{ color: '#3d7a4a' }]);
+  assertDeepEqual(badgeTextCalls, [{ text: '' }]);
+  assertDeepEqual(iconCalls, [
+    {
+      path: {
+        16: 'icons/icon16-saved.png',
+        48: 'icons/icon48-saved.png',
+      },
+    },
+  ]);
 });
 
-test('action controller clears the badge when the current link is not in the inbox', async () => {
+test('action controller restores the default icon when the current link is not in the inbox', async () => {
   const controller = globalThis.TabOutActionController;
   if (!controller) throw new Error('TabOutActionController missing');
 
   const badgeTextCalls = [];
+  const iconCalls = [];
   const fakeChrome = {
     action: {
       async setBadgeText(details) {
@@ -68,6 +79,9 @@ test('action controller clears the badge when the current link is not in the inb
       },
       async setBadgeBackgroundColor() {
         throw new Error('Badge color should not be set when the link is absent');
+      },
+      async setIcon(details) {
+        iconCalls.push(details);
       },
     },
     tabs: {
@@ -85,4 +99,12 @@ test('action controller clears the badge when the current link is not in the inb
   await controller.updateCurrentTabInboxBadge(fakeChrome, fakeArticlesRepo);
 
   assertDeepEqual(badgeTextCalls, [{ text: '' }]);
+  assertDeepEqual(iconCalls, [
+    {
+      path: {
+        16: 'icons/icon16.png',
+        48: 'icons/icon48.png',
+      },
+    },
+  ]);
 });

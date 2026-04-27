@@ -1,8 +1,14 @@
 (function () {
   const namespace = (globalThis.TabOutActionController = globalThis.TabOutActionController || {});
   const HOME_PATH = 'index.html';
-  const SAVED_BADGE_TEXT = '✓';
-  const SAVED_BADGE_COLOR = '#3d7a4a';
+  const DEFAULT_ICON_PATH = {
+    16: 'icons/icon16.png',
+    48: 'icons/icon48.png',
+  };
+  const SAVED_ICON_PATH = {
+    16: 'icons/icon16-saved.png',
+    48: 'icons/icon48-saved.png',
+  };
   const INTERNAL_URL_PREFIXES = [
     'about:',
     'brave://',
@@ -33,13 +39,14 @@
     return tabs && tabs.length ? tabs[0] : null;
   }
 
-  async function setSavedBadge(chromeApi) {
-    await chromeApi.action.setBadgeText({ text: SAVED_BADGE_TEXT });
-    await chromeApi.action.setBadgeBackgroundColor({ color: SAVED_BADGE_COLOR });
+  async function showSavedIcon(chromeApi) {
+    await chromeApi.action.setBadgeText({ text: '' });
+    await chromeApi.action.setIcon({ path: SAVED_ICON_PATH });
   }
 
-  async function clearBadge(chromeApi) {
+  async function showDefaultIcon(chromeApi) {
     await chromeApi.action.setBadgeText({ text: '' });
+    await chromeApi.action.setIcon({ path: DEFAULT_ICON_PATH });
   }
 
   async function updateCurrentTabInboxBadge(chromeApi, articlesRepo) {
@@ -47,19 +54,19 @@
       const tab = await getCurrentTab(chromeApi);
       const url = tab && tab.url ? tab.url : '';
       if (!canCheckInboxForUrl(url)) {
-        await clearBadge(chromeApi);
+        await showDefaultIcon(chromeApi);
         return;
       }
 
       const article = await articlesRepo.findArticleByCanonicalUrl(url);
       if (isInboxArticle(article)) {
-        await setSavedBadge(chromeApi);
+        await showSavedIcon(chromeApi);
         return;
       }
 
-      await clearBadge(chromeApi);
+      await showDefaultIcon(chromeApi);
     } catch {
-      await clearBadge(chromeApi);
+      await showDefaultIcon(chromeApi);
     }
   }
 
