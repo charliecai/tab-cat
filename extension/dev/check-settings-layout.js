@@ -10,6 +10,7 @@ function assert(condition, message) {
 }
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
 
 const providerIndex = html.indexOf('data-i18n="settings.provider.title"');
 const languageIndex = html.indexOf('data-i18n="settings.language.title"');
@@ -29,5 +30,9 @@ assert(providerIndex < statusIndex && statusIndex < languageIndex, 'Provider sta
 assert(languageIndex < languageSelectIndex && languageSelectIndex < debugIndex, 'Language select should live inside the language block');
 assert(languageIndex < languageStatusIndex && languageStatusIndex < debugIndex, 'Language status should live inside the language block');
 assert(providerIndex < captureHelpIndex && captureHelpIndex < languageIndex, 'Provider capture help should remain inside the AI provider block');
+assert(css.includes('.settings-field select'), 'Language select should use the settings field control styling');
+assert(css.includes('appearance: none'), 'Language select should suppress browser-default select styling');
+assert(css.includes('.settings-field select:focus'), 'Language select should have a focus style aligned with settings inputs');
+assert(css.includes('#3898ec'), 'Language select focus should use the design-system focus blue');
 
 console.log('PASS settings layout hierarchy');

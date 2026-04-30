@@ -1914,14 +1914,37 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   text-transform: uppercase;
 }
 
-.settings-field input {
+.settings-field input,
+.settings-field select {
   width: 100%;
   border: 1px solid rgba(232, 226, 218, 0.92);
   background: #fffdf9;
   border-radius: 12px;
   padding: 12px 14px;
   font-size: 14px;
+  font-family: inherit;
   color: var(--ink);
+}
+
+.settings-field select {
+  appearance: none;
+  min-height: 45px;
+  padding-right: 42px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 21px) 50%,
+    calc(100% - 15px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
+.settings-field input:focus,
+.settings-field select:focus {
+  outline: none;
+  border-color: #3898ec;
+  box-shadow: 0 0 0 3px rgba(56, 152, 236, 0.16);
 }
 
 .settings-status {
