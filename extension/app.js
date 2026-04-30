@@ -1304,65 +1304,35 @@ function normalizeReadingFilterKind(kind) {
   return kind === 'label' ? 'labels' : kind;
 }
 
-function deriveReadingFilters(articles) {
-  const libraryArticles = (articles || []).filter(isReadingLibraryArticle);
-  return {
-    lifecycle: [
-      { value: 'all', count: libraryArticles.length },
-      {
-        value: 'active',
-        count: libraryArticles.filter((article) => (article.lifecycle_state || 'active') === 'active').length,
-      },
-      {
-        value: 'read',
-        count: libraryArticles.filter((article) => article.lifecycle_state === 'read').length,
-      },
-    ],
-    labels: uniqueSorted(libraryArticles.flatMap((article) => article.labels || []))
-      .map((value) => ({
-        value,
-        count: libraryArticles.filter((article) => (article.labels || []).includes(value)).length,
-      }))
-      .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)),
-    sources: uniqueSorted(libraryArticles.map(getArticleSource)).map((value) => ({
-      value,
-      count: libraryArticles.filter((article) => getArticleSource(article) === value).length,
-    })),
-    times: ['today', 'last_3_days', 'last_7_days', 'older']
-      .map((value) => ({
-        value,
-        count: libraryArticles.filter((article) => getArticleTimeBucket(article) === value).length,
-      }))
-      .filter((entry) => entry.count > 0),
-    statuses: ['ready', 'processing', 'failed', 'unopened', 'opened']
-      .map((value) => ({
-        value,
-        count: libraryArticles.filter((article) => getArticleStatusTokens(article).includes(value)).length,
-      }))
-      .filter((entry) => entry.count > 0),
-  };
-}
-
-function applyReadingFilters(articles, filterState) {
-  const query = (filterState.search || '').trim().toLowerCase();
-  const activeStatus = Array.isArray(filterState.status)
+function getActiveReadingStatus(filterState) {
+  if (!filterState) return '';
+  return Array.isArray(filterState.status)
     ? (filterState.status[0] || '')
     : (filterState.status || '');
+}
+
+function applyReadingFiltersExcept(articles, filterState = {}, excludedKind = '') {
+  const query = excludedKind === 'search' ? '' : (filterState.search || '').trim().toLowerCase();
+  const activeStatus = excludedKind === 'status' ? '' : getActiveReadingStatus(filterState);
+  const lifecycle = excludedKind === 'lifecycle' ? 'all' : (filterState.lifecycle || 'active');
+  const labels = excludedKind === 'labels' ? [] : (filterState.labels || []);
+  const source = excludedKind === 'source' ? '' : (filterState.source || '');
+  const time = excludedKind === 'time' ? '' : (filterState.time || '');
   return (articles || []).filter((article) => {
-    if (!matchesReadingLifecycle(article, filterState.lifecycle || 'active')) {
+    if (!matchesReadingLifecycle(article, lifecycle)) {
       return false;
     }
     if (query) {
       const haystack = `${article.title || ''} ${article.url || ''} ${getArticleSource(article)}`.toLowerCase();
       if (!haystack.includes(query)) return false;
     }
-    if (filterState.labels.length > 0 && !filterState.labels.every((label) => (article.labels || []).includes(label))) {
+    if (labels.length > 0 && !labels.every((label) => (article.labels || []).includes(label))) {
       return false;
     }
-    if (filterState.source && getArticleSource(article) !== filterState.source) {
+    if (source && getArticleSource(article) !== source) {
       return false;
     }
-    if (filterState.time && getArticleTimeBucket(article) !== filterState.time) {
+    if (time && getArticleTimeBucket(article) !== time) {
       return false;
     }
     if (activeStatus) {
@@ -1373,6 +1343,55 @@ function applyReadingFilters(articles, filterState) {
     }
     return true;
   });
+}
+
+function deriveReadingFilters(articles, filterState = readingFilterState) {
+  const libraryArticles = (articles || []).filter(isReadingLibraryArticle);
+  const lifecycleArticles = applyReadingFiltersExcept(libraryArticles, filterState, 'lifecycle');
+  const labelArticles = applyReadingFiltersExcept(libraryArticles, filterState, 'labels');
+  const sourceArticles = applyReadingFiltersExcept(libraryArticles, filterState, 'source');
+  const timeArticles = applyReadingFiltersExcept(libraryArticles, filterState, 'time');
+  const statusArticles = applyReadingFiltersExcept(libraryArticles, filterState, 'status');
+  return {
+    lifecycle: [
+      { value: 'all', count: lifecycleArticles.length },
+      {
+        value: 'active',
+        count: lifecycleArticles.filter((article) => (article.lifecycle_state || 'active') === 'active').length,
+      },
+      {
+        value: 'read',
+        count: lifecycleArticles.filter((article) => article.lifecycle_state === 'read').length,
+      },
+    ],
+    labels: uniqueSorted(labelArticles.flatMap((article) => article.labels || []))
+      .map((value) => ({
+        value,
+        count: labelArticles.filter((article) => (article.labels || []).includes(value)).length,
+      }))
+      .filter((entry) => entry.count > 0)
+      .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)),
+    sources: uniqueSorted(sourceArticles.map(getArticleSource)).map((value) => ({
+      value,
+      count: sourceArticles.filter((article) => getArticleSource(article) === value).length,
+    })).filter((entry) => entry.count > 0),
+    times: ['today', 'last_3_days', 'last_7_days', 'older']
+      .map((value) => ({
+        value,
+        count: timeArticles.filter((article) => getArticleTimeBucket(article) === value).length,
+      }))
+      .filter((entry) => entry.count > 0),
+    statuses: ['ready', 'processing', 'failed', 'unopened', 'opened']
+      .map((value) => ({
+        value,
+        count: statusArticles.filter((article) => getArticleStatusTokens(article).includes(value)).length,
+      }))
+      .filter((entry) => entry.count > 0),
+  };
+}
+
+function applyReadingFilters(articles, filterState) {
+  return applyReadingFiltersExcept(articles, filterState);
 }
 
 function groupReadingResultsByPriority(articles) {

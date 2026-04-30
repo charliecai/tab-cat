@@ -375,6 +375,75 @@ test('reading inbox derives label filters ordered by article count descending', 
   );
 });
 
+test('reading inbox derives facet counts from the other active filters', () => {
+  const helpers = globalThis.TabOutReadingInbox;
+  if (!helpers) throw new Error('TabOutReadingInbox missing');
+
+  const articles = [
+    {
+      id: 'unread-agent',
+      title: 'Unread agent notes',
+      url: 'https://example.com/unread-agent',
+      site_name: 'example.com',
+      labels: ['agent'],
+      priority_bucket: 'read_now',
+      processing_state: 'ready',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-20T02:00:00.000Z',
+      last_saved_at: '2026-04-20T02:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
+      id: 'unread-pricing',
+      title: 'Unread pricing notes',
+      url: 'https://pricing.example.com/unread',
+      site_name: 'pricing.example.com',
+      labels: ['pricing'],
+      priority_bucket: 'skim_later',
+      processing_state: 'ready',
+      lifecycle_state: 'active',
+      saved_at: '2026-04-19T02:00:00.000Z',
+      last_saved_at: '2026-04-19T02:00:00.000Z',
+      last_opened_at: null,
+    },
+    {
+      id: 'read-design',
+      title: 'Read design notes',
+      url: 'https://design.example.com/read',
+      site_name: 'design.example.com',
+      labels: ['design'],
+      priority_bucket: 'worth_keeping',
+      processing_state: 'ready',
+      lifecycle_state: 'read',
+      saved_at: '2026-04-18T02:00:00.000Z',
+      last_saved_at: '2026-04-18T02:00:00.000Z',
+      last_opened_at: '2026-04-18T04:00:00.000Z',
+    },
+  ];
+
+  const filters = helpers.deriveReadingFilters(articles, {
+    lifecycle: 'active',
+    search: '',
+    labels: ['agent'],
+    source: '',
+    time: '',
+    status: '',
+  });
+
+  assertDeepEqual(
+    filters.lifecycle.map((entry) => `${entry.value}:${entry.count}`),
+    ['all:1', 'active:1', 'read:0']
+  );
+  assertDeepEqual(
+    filters.labels.map((entry) => `${entry.value}:${entry.count}`),
+    ['agent:1', 'pricing:1']
+  );
+  assertDeepEqual(
+    filters.sources.map((entry) => `${entry.value}:${entry.count}`),
+    ['example.com:1']
+  );
+});
+
 test('reading inbox retry rerenders queued state before background kick resolves', async () => {
   const helpers = globalThis.TabOutReadingInbox;
   if (!helpers) throw new Error('TabOutReadingInbox missing');
