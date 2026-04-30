@@ -48,6 +48,7 @@ const LIGHTWEIGHT_PREHEAT_LIMIT = 5;
 const LIGHTWEIGHT_PREHEAT_CONCURRENCY = 1;
 const LIGHTWEIGHT_PREHEAT_TIMEOUT_MS = 4000;
 const LIGHTWEIGHT_PREHEAT_WAIT_MS = 350;
+const PIN_ICON = '<svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="4142" height="128" width="128" aria-hidden="true" focusable="false"><path fill="currentColor" d="M648.728381 130.779429a73.142857 73.142857 0 0 1 22.674286 15.433142l191.561143 191.756191a73.142857 73.142857 0 0 1-22.137905 118.564571l-67.876572 30.061715-127.341714 127.488-10.093714 140.239238a73.142857 73.142857 0 0 1-124.684191 46.445714l-123.66019-123.782095-210.724572 211.699809-51.833904-51.614476 210.846476-211.821714-127.926857-128.024381a73.142857 73.142857 0 0 1 46.299428-124.635429l144.237715-10.776381 125.074285-125.220571 29.379048-67.779048a73.142857 73.142857 0 0 1 96.207238-38.034285z m-29.086476 67.120761l-34.913524 80.530286-154.087619 154.331429-171.398095 12.751238 303.323428 303.542857 12.044191-167.399619 156.233143-156.428191 80.384-35.59619-191.585524-191.73181z" p-id="4143"></path></svg>';
 const preheatEntries = new Map();
 let preheatQueue = [];
 let preheatInFlight = 0;
@@ -2348,7 +2349,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-pin" data-action="pin-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${t('actions.pinToShortcuts')}">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.25 4.5 5.25 5.25m-9 8.25L5.25 21l2.25-5.25m3-9.75 5.25 5.25m-5.25-5.25-.97.97a2.25 2.25 0 0 0 0 3.182l2.318 2.318a2.25 2.25 0 0 0 3.182 0l.97-.97m-8.47-5.5 6.5-6.5a1.5 1.5 0 0 1 2.121 0l3.348 3.348a1.5 1.5 0 0 1 0 2.121l-6.5 6.5" /></svg>
+          ${PIN_ICON}
         </button>
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${t('actions.saveForLater')}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -2761,7 +2762,7 @@ function renderDomainCard(group) {
       <span class="chip-text">${label}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-pin" data-action="pin-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${t('actions.pinToShortcuts')}">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.1" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.25 4.5 5.25 5.25m-9 8.25L5.25 21l2.25-5.25m3-9.75 5.25 5.25m-5.25-5.25-.97.97a2.25 2.25 0 0 0 0 3.182l2.318 2.318a2.25 2.25 0 0 0 3.182 0l.97-.97m-8.47-5.5 6.5-6.5a1.5 1.5 0 0 1 2.121 0l3.348 3.348a1.5 1.5 0 0 1 0 2.121l-6.5 6.5" /></svg>
+          ${PIN_ICON}
         </button>
         <button class="chip-action chip-save${saveClass}" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" data-tab-id="${tab.id || ''}" title="${saveDisabled ? t('labels.captureUnavailable') : t('actions.saveForLater')}" ${saveDisabled ? 'disabled aria-disabled="true"' : ''}>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>

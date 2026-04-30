@@ -1445,6 +1445,14 @@ test('expanded overflow chips keep the pin action for fixed entry shortcuts', ()
     document.querySelectorAll('.mission-pages > .page-chip [data-action="pin-single-tab"]').length,
     8
   );
+  const visiblePinIcon = document.querySelector(
+    '.mission-pages > .page-chip [data-action="pin-single-tab"] svg'
+  );
+  assertEqual(visiblePinIcon.getAttribute('viewBox'), '0 0 1024 1024');
+  assertEqual(
+    visiblePinIcon.querySelector('path').getAttribute('d').startsWith('M648.728381 130.779429'),
+    true
+  );
 
   const expandChip = document.querySelector('[data-action="expand-chips"]');
   expandChip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -1458,4 +1466,5 @@ test('expanded overflow chips keep the pin action for fixed entry shortcuts', ()
 
   assertEqual(Boolean(overflowOnePin), true);
   assertEqual(Boolean(overflowTwoPin), true);
+  assertEqual(overflowOnePin.querySelector('svg').getAttribute('viewBox'), '0 0 1024 1024');
 });
