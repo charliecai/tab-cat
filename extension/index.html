@@ -168,7 +168,7 @@
   <div class="settings-drawer-header">
     <div>
       <h2 data-i18n="settings.title">Settings</h2>
-      <p data-i18n="settings.subtitle">Provider setup and a lightweight debug surface stay inside the homepage.</p>
+
     </div>
     <button class="settings-close" data-action="close-settings" type="button" data-i18n="settings.close" data-i18n-aria-label="settings.closeAriaLabel">Close</button>
   </div>
@@ -176,7 +176,7 @@
   <div class="settings-drawer-body">
     <section class="settings-block">
       <h3 data-i18n="settings.provider.title">AI Provider</h3>
-      <p class="settings-block-copy" data-i18n="settings.provider.copy">Use a single OpenAI-compatible provider. Article content only leaves the browser when analysis runs against this host.</p>
+      <p class="settings-block-copy" data-i18n="settings.provider.copy">Use an OpenAI-compatible provider. Article content only leaves the browser when analysis runs against this host.</p>
       <div class="settings-field">
         <label for="settingsBaseUrl" data-i18n="settings.provider.baseUrlLabel">Base URL</label>
         <input id="settingsBaseUrl" type="url" data-i18n-placeholder="settings.provider.baseUrlPlaceholder" placeholder="https://api.example.com/v1" autocomplete="off">
@@ -208,13 +208,12 @@
           <option value="zh-CN" data-i18n="settings.language.options.zhCn">简体中文</option>
         </select>
       </div>
-      <p class="settings-block-copy" data-i18n="settings.language.help">One setting controls UI copy and AI outputs for new analysis runs.</p>
+      <p class="settings-block-copy" data-i18n="settings.language.help">Control UI copy and AI outputs for new analysis runs.</p>
       <div class="settings-status" id="languageStatus" aria-live="polite"></div>
     </section>
 
     <section class="settings-block">
       <h3 data-i18n="settings.backup.title">Backup</h3>
-      <p class="settings-block-copy" data-i18n="settings.backup.copy">Export a full local snapshot before risky testing, then import it later to restore your inbox, pins, deferred tabs, and AI settings.</p>
       <div class="settings-actions settings-actions-wrap">
         <button class="settings-test-button" type="button" data-action="export-local-backup" data-i18n="settings.backup.actions.export">Export data</button>
         <button class="settings-test-button" type="button" data-action="import-local-backup" data-i18n="settings.backup.actions.import">Import data</button>

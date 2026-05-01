@@ -29,7 +29,7 @@
         closeAriaLabel: 'Close settings',
         provider: {
           title: 'AI Provider',
-          copy: 'Use a single OpenAI-compatible provider. Article content only leaves the browser when analysis runs against this host.',
+          copy: 'Use an OpenAI-compatible provider. Article content only leaves the browser when analysis runs against this host.',
           baseUrlLabel: 'Base URL',
           baseUrlPlaceholder: 'https://api.example.com/v1',
           apiKeyLabel: 'API Key',
@@ -42,7 +42,7 @@
         language: {
           title: 'Language',
           label: 'Display and AI language',
-          help: 'One setting controls UI copy and AI outputs for new analysis runs.',
+          help: 'Control UI copy and AI outputs for new analysis runs.',
           options: {
             auto: 'Follow browser',
             en: 'English',
@@ -367,7 +367,7 @@
         closeAriaLabel: '关闭设置',
         provider: {
           title: 'AI 提供方',
-          copy: '使用单一的 OpenAI 兼容提供方。只有在分析运行时，文章内容才会离开浏览器发送到该主机。',
+          copy: '使用 OpenAI 兼容提供方。只有在分析运行时，文章内容才会离开浏览器发送到该主机。',
           baseUrlLabel: 'Base URL',
           baseUrlPlaceholder: 'https://api.example.com/v1',
           apiKeyLabel: 'API Key',
@@ -380,7 +380,7 @@
         language: {
           title: '语言',
           label: '界面与 AI 语言',
-          help: '一个设置同时控制界面文案与后续 AI 分析输出语言。',
+          help: '设置同时控制界面文案与后续 AI 分析输出语言。',
           options: {
             auto: '跟随浏览器',
             en: 'English',
