@@ -54,8 +54,13 @@ test('action controller saves the current tab to Reading inbox without closing i
       return { id: 'job-1', ...input };
     },
   };
+  const fakeSettingsRepo = {
+    async getAiSettings() {
+      return { language_preference: 'en' };
+    },
+  };
 
-  const result = await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo);
+  const result = await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo, fakeSettingsRepo);
 
   assertDeepEqual(createdArticles, [
     {
@@ -85,8 +90,7 @@ test('action controller saves the current tab to Reading inbox without closing i
       args: [
         {
           tone: 'success',
-          title: 'Saved to Reading inbox',
-          message: 'This page is ready for later.',
+          text: 'Saved to Reading inbox',
         },
       ],
     },
@@ -136,8 +140,13 @@ test('action controller shows an already-saved page toast without creating a dup
       throw new Error('Existing ready links should not enqueue new jobs');
     },
   };
+  const fakeSettingsRepo = {
+    async getAiSettings() {
+      return { language_preference: 'en' };
+    },
+  };
 
-  const result = await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo);
+  const result = await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo, fakeSettingsRepo);
 
   assertEqual(result.deduped, true);
   assertDeepEqual(toastCalls, [
@@ -146,8 +155,7 @@ test('action controller shows an already-saved page toast without creating a dup
       args: [
         {
           tone: 'success',
-          title: 'Already in Reading inbox',
-          message: 'This page is still saved for later.',
+          text: 'Already saved',
         },
       ],
     },
@@ -191,9 +199,14 @@ test('action controller shows a failure toast when the current page cannot be sa
       throw new Error('Unsupported pages should not enqueue jobs');
     },
   };
+  const fakeSettingsRepo = {
+    async getAiSettings() {
+      return { language_preference: 'en' };
+    },
+  };
 
   try {
-    await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo);
+    await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo, fakeSettingsRepo);
     throw new Error('Expected unsupported save to fail');
   } catch (error) {
     assertEqual(error.message, 'Current page cannot be saved to Reading inbox');
@@ -213,8 +226,7 @@ test('action controller shows a failure toast when the current page cannot be sa
       args: [
         {
           tone: 'error',
-          title: 'Could not save this page',
-          message: 'Reading inbox works on regular web pages.',
+          text: 'Failed to save tab',
         },
       ],
     },
@@ -260,9 +272,14 @@ test('action controller shows a failure toast when saving a regular page fails',
       throw new Error('Save should fail before queueing');
     },
   };
+  const fakeSettingsRepo = {
+    async getAiSettings() {
+      return { language_preference: 'en' };
+    },
+  };
 
   try {
-    await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo);
+    await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo, fakeSettingsRepo);
     throw new Error('Expected save failure to be rethrown');
   } catch (error) {
     assertEqual(error.message, 'IndexedDB unavailable');
@@ -274,8 +291,96 @@ test('action controller shows a failure toast when saving a regular page fails',
       args: [
         {
           tone: 'error',
-          title: 'Could not save this page',
-          message: 'Please try again in a moment.',
+          text: 'Failed to save tab',
+        },
+      ],
+    },
+  ]);
+});
+
+
+
+
+test('action controller renders action toast as one explanatory line', async () => {
+  const controller = globalThis.TabOutActionController;
+  if (!controller) throw new Error('TabOutActionController missing');
+
+  document.getElementById('tab-out-action-toast')?.remove();
+  const fakeChrome = {
+    scripting: {
+      async executeScript(details) {
+        details.func(...details.args);
+      },
+    },
+  };
+
+  await controller.showActionToast(fakeChrome, 101, {
+    tone: 'success',
+    text: 'Saved to Reading inbox',
+  });
+
+  const toast = document.getElementById('tab-out-action-toast');
+  if (!toast) throw new Error('Expected action toast to render');
+  assertEqual(toast.textContent.trim(), '✓Saved to Reading inbox');
+  assertEqual(toast.style.fontSize, '12px');
+  assertEqual(toast.style.fontWeight, '400');
+  assertEqual(toast.querySelectorAll('div').length, 2);
+  toast.remove();
+});
+
+
+test('action controller localizes action toast text from the saved language preference', async () => {
+  const controller = globalThis.TabOutActionController;
+  if (!controller) throw new Error('TabOutActionController missing');
+
+  const toastCalls = [];
+  const fakeChrome = {
+    action: {
+      async setBadgeText() {},
+      async setIcon() {},
+    },
+    scripting: {
+      async executeScript(details) {
+        toastCalls.push({
+          target: details.target,
+          args: details.args,
+        });
+      },
+    },
+    tabs: {
+      async query() {
+        return [{ id: 91, url: 'https://example.com/zh-save', title: '中文保存' }];
+      },
+    },
+  };
+  const fakeArticlesRepo = {
+    async findArticleByCanonicalUrl() {
+      return null;
+    },
+    async createQueuedArticle(input) {
+      return { id: 'article-zh', lifecycle_state: 'active', ...input };
+    },
+  };
+  const fakeJobsRepo = {
+    async enqueueJob(input) {
+      return { id: 'job-zh', ...input };
+    },
+  };
+  const fakeSettingsRepo = {
+    async getAiSettings() {
+      return { language_preference: 'zh-CN' };
+    },
+  };
+
+  await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo, fakeSettingsRepo);
+
+  assertDeepEqual(toastCalls, [
+    {
+      target: { tabId: 91 },
+      args: [
+        {
+          tone: 'success',
+          text: '已保存到阅读收件箱',
         },
       ],
     },

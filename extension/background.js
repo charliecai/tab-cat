@@ -117,7 +117,12 @@ chrome.tabs.onUpdated.addListener(() => {
 
 chrome.action.onClicked.addListener(() => {
   globalThis.TabOutActionController
-    .saveCurrentTabToReadingInbox(chrome, globalThis.TabOutArticlesRepo, globalThis.TabOutJobsRepo)
+    .saveCurrentTabToReadingInbox(
+      chrome,
+      globalThis.TabOutArticlesRepo,
+      globalThis.TabOutJobsRepo,
+      globalThis.TabOutSettingsRepo
+    )
     .then(async () => {
       await globalThis.TabOutJobsRunner.kick();
     })

@@ -57,6 +57,27 @@
     await chromeApi.action.setIcon({ path: DEFAULT_ICON_PATH });
   }
 
+  async function getActionToastText(settingsRepo, key) {
+    const i18n = globalThis.TabOutI18n;
+    if (!i18n || typeof i18n.t !== 'function') return key;
+
+    if (settingsRepo && typeof settingsRepo.getAiSettings === 'function') {
+      try {
+        const settings = await settingsRepo.getAiSettings();
+        if (typeof i18n.setLanguagePreference === 'function') {
+          i18n.setLanguagePreference(
+            (settings && settings.language_preference) || 'auto',
+            (typeof navigator !== 'undefined' && navigator.language) || 'en-US'
+          );
+        }
+      } catch {
+        // Fall back to the i18n module's current language state.
+      }
+    }
+
+    return i18n.t(key);
+  }
+
   function renderActionToast(options) {
     const rootId = 'tab-out-action-toast';
     const existing = document.getElementById(rootId);
@@ -87,18 +108,20 @@
       'top:24px',
       'right:24px',
       'z-index:2147483647',
-      'display:grid',
-      'grid-template-columns:28px minmax(0, 1fr)',
-      'gap:10px',
+      'display:flex',
+      'gap:8px',
       'align-items:center',
       'max-width:min(360px, calc(100vw - 32px))',
-      'padding:12px 14px',
-      'border-radius:14px',
+      'padding:10px 12px',
+      'border-radius:12px',
       `border:1px solid ${palette.border}`,
       'background:rgba(250, 249, 245, 0.98)',
       'color:#1a1613',
-      'box-shadow:0 14px 36px rgba(26, 22, 19, 0.12), 0 0 0 1px rgba(240, 238, 230, 0.84)',
+      'box-shadow:0 10px 28px rgba(26, 22, 19, 0.1), 0 0 0 1px rgba(240, 238, 230, 0.84)',
       'font-family:DM Sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'font-size:12px',
+      'font-weight:400',
+      'line-height:1.35',
       'opacity:0',
       'transform:translateY(-8px)',
       'transition:opacity 180ms ease, transform 180ms ease',
@@ -108,8 +131,8 @@
     const icon = document.createElement('div');
     icon.textContent = palette.glyph;
     icon.style.cssText = [
-      'width:28px',
-      'height:28px',
+      'width:20px',
+      'height:20px',
       'border-radius:999px',
       `background:${palette.tint}`,
       `color:${palette.accent}`,
@@ -117,19 +140,15 @@
       'display:flex',
       'align-items:center',
       'justify-content:center',
-      'font-size:15px',
-      'font-weight:700',
+      'font-size:12px',
+      'font-weight:600',
       'line-height:1',
+      'flex:0 0 auto',
     ].join(';');
 
     const copy = document.createElement('div');
-    const title = document.createElement('div');
-    title.textContent = options.title || '';
-    title.style.cssText = 'font-size:13px;font-weight:700;line-height:1.25;letter-spacing:-0.01em;';
-    const message = document.createElement('div');
-    message.textContent = options.message || '';
-    message.style.cssText = 'margin-top:2px;font-size:12px;line-height:1.35;color:#5e5d59;';
-    copy.append(title, message);
+    copy.textContent = options.text || '';
+    copy.style.cssText = 'min-width:0;color:#5e5d59;';
     toast.append(icon, copy);
     document.documentElement.appendChild(toast);
 
@@ -178,15 +197,14 @@
     }
   }
 
-  async function saveCurrentTabToReadingInbox(chromeApi, articlesRepo, jobsRepo) {
+  async function saveCurrentTabToReadingInbox(chromeApi, articlesRepo, jobsRepo, settingsRepo) {
     const tab = await getCurrentTab(chromeApi);
     const url = tab && tab.url ? tab.url : '';
     if (!canCheckInboxForUrl(url)) {
       await showDefaultIcon(chromeApi);
       await showActionToast(chromeApi, tab && tab.id, {
         tone: 'error',
-        title: 'Could not save this page',
-        message: 'Reading inbox works on regular web pages.',
+        text: await getActionToastText(settingsRepo, 'toast.failedToSaveTab'),
       });
       throw new Error('Current page cannot be saved to Reading inbox');
     }
@@ -204,8 +222,7 @@
         await showSavedIcon(chromeApi);
         await showActionToast(chromeApi, tab.id, {
           tone: 'success',
-          title: 'Already in Reading inbox',
-          message: 'This page is still saved for later.',
+          text: await getActionToastText(settingsRepo, 'toast.alreadySaved'),
         });
         return {
           article: refreshed,
@@ -231,8 +248,7 @@
       await showSavedIcon(chromeApi);
       await showActionToast(chromeApi, tab.id, {
         tone: 'success',
-        title: 'Saved to Reading inbox',
-        message: 'This page is ready for later.',
+        text: await getActionToastText(settingsRepo, 'toast.savedToReadingInbox'),
       });
 
       return {
@@ -243,8 +259,7 @@
     } catch (error) {
       await showActionToast(chromeApi, tab.id, {
         tone: 'error',
-        title: 'Could not save this page',
-        message: 'Please try again in a moment.',
+        text: await getActionToastText(settingsRepo, 'toast.failedToSaveTab'),
       });
       throw error;
     }
@@ -254,6 +269,7 @@
   namespace.openTabCatHome = openTabCatHome;
   namespace.canCheckInboxForUrl = canCheckInboxForUrl;
   namespace.isInboxArticle = isInboxArticle;
+  namespace.getActionToastText = getActionToastText;
   namespace.showActionToast = showActionToast;
   namespace.saveCurrentTabToReadingInbox = saveCurrentTabToReadingInbox;
   namespace.updateCurrentTabInboxBadge = updateCurrentTabInboxBadge;
