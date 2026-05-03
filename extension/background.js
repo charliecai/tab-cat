@@ -116,9 +116,15 @@ chrome.tabs.onUpdated.addListener(() => {
 });
 
 chrome.action.onClicked.addListener(() => {
-  globalThis.TabOutActionController.openTabCatHome(chrome).catch((error) => {
-    console.warn('[tab-out] failed to open Tab Cat home:', error);
-  });
+  globalThis.TabOutActionController
+    .saveCurrentTabToReadingInbox(chrome, globalThis.TabOutArticlesRepo, globalThis.TabOutJobsRepo)
+    .then(async () => {
+      await globalThis.TabOutJobsRunner.kick();
+    })
+    .catch((error) => {
+      console.warn('[tab-out] failed to save current tab to Reading inbox:', error);
+      updateBadge();
+    });
 });
 
 if (chrome.windows && chrome.windows.onFocusChanged) {

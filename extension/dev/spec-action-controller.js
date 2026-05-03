@@ -1,24 +1,77 @@
-test('action controller opens the Tab Cat homepage in a new tab', async () => {
+test('action controller saves the current tab to Reading inbox without closing it', async () => {
   const controller = globalThis.TabOutActionController;
   if (!controller) throw new Error('TabOutActionController missing');
 
-  const createdTabs = [];
+  const removedTabs = [];
+  const badgeTextCalls = [];
+  const iconCalls = [];
   const fakeChrome = {
-    runtime: {
-      getURL(path) {
-        return `chrome-extension://tabcat/${path}`;
+    action: {
+      async setBadgeText(details) {
+        badgeTextCalls.push(details);
+      },
+      async setIcon(details) {
+        iconCalls.push(details);
       },
     },
     tabs: {
-      async create(tab) {
-        createdTabs.push(tab);
+      async query(query) {
+        assertDeepEqual(query, { active: true, currentWindow: true });
+        return [{ id: 42, url: 'https://example.com/read#intro', title: 'Example Read' }];
+      },
+      async create() {
+        throw new Error('Action click should not open a new tab');
+      },
+      async remove(tabId) {
+        removedTabs.push(tabId);
       },
     },
   };
+  const createdArticles = [];
+  const fakeArticlesRepo = {
+    async findArticleByCanonicalUrl(url) {
+      assertEqual(url, 'https://example.com/read#intro');
+      return null;
+    },
+    async createQueuedArticle(input) {
+      createdArticles.push(input);
+      return { id: 'article-1', lifecycle_state: 'active', ...input };
+    },
+  };
+  const enqueuedJobs = [];
+  const fakeJobsRepo = {
+    async enqueueJob(input) {
+      enqueuedJobs.push(input);
+      return { id: 'job-1', ...input };
+    },
+  };
 
-  await controller.openTabCatHome(fakeChrome);
+  const result = await controller.saveCurrentTabToReadingInbox(fakeChrome, fakeArticlesRepo, fakeJobsRepo);
 
-  assertDeepEqual(createdTabs, [{ url: 'chrome-extension://tabcat/index.html' }]);
+  assertDeepEqual(createdArticles, [
+    {
+      source_type: 'tab',
+      source_ref: '42',
+      url: 'https://example.com/read#intro',
+      title: 'Example Read',
+      site_name: 'example.com',
+      close_source_tab_after_capture: false,
+      capture_source: 'action-button',
+    },
+  ]);
+  assertDeepEqual(enqueuedJobs, [{ article_id: 'article-1', processing_state: 'queued' }]);
+  assertDeepEqual(removedTabs, []);
+  assertDeepEqual(badgeTextCalls, [{ text: '' }]);
+  assertDeepEqual(iconCalls, [
+    {
+      path: {
+        16: 'icons/icon16-saved.png',
+        48: 'icons/icon48-saved.png',
+      },
+    },
+  ]);
+  assertEqual(result.article.id, 'article-1');
+  assertEqual(result.deduped, false);
 });
 
 test('action controller shows a saved-state icon for the current saved link', async () => {
