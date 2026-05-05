@@ -475,3 +475,162 @@ test('action controller restores the default icon when the current link is not i
     },
   ]);
 });
+
+
+test('action controller injects reading page actions for an unread saved article', async () => {
+  const controller = globalThis.TabOutActionController;
+  if (!controller) throw new Error('TabOutActionController missing');
+
+  const scriptCalls = [];
+  const fakeChrome = {
+    tabs: {
+      async query(query) {
+        assertDeepEqual(query, { active: true, currentWindow: true });
+        return [{ id: 101, url: 'https://example.com/read#section', title: 'Article page' }];
+      },
+    },
+    scripting: {
+      async executeScript(details) {
+        scriptCalls.push(details);
+      },
+    },
+  };
+  const fakeArticlesRepo = {
+    async findArticleByCanonicalUrl(url) {
+      assertEqual(url, 'https://example.com/read#section');
+      return {
+        id: 'article-quick-1',
+        title: 'Article page',
+        url: 'https://example.com/read',
+        lifecycle_state: 'active',
+      };
+    },
+  };
+
+  const result = await controller.showCurrentTabReadingActions(fakeChrome, fakeArticlesRepo, null, null);
+
+  assertEqual(result.injected, true);
+  assertEqual(scriptCalls.length, 1);
+  assertDeepEqual(scriptCalls[0].target, { tabId: 101 });
+  assertEqual(scriptCalls[0].args[0].article.id, 'article-quick-1');
+  assertEqual(scriptCalls[0].args[0].article.title, 'Article page');
+});
+
+
+test('action controller removes reading page actions when current article is already read', async () => {
+  const controller = globalThis.TabOutActionController;
+  if (!controller) throw new Error('TabOutActionController missing');
+
+  const scriptCalls = [];
+  const fakeChrome = {
+    tabs: {
+      async query() {
+        return [{ id: 102, url: 'https://example.com/read' }];
+      },
+    },
+    scripting: {
+      async executeScript(details) {
+        scriptCalls.push(details);
+      },
+    },
+  };
+  const fakeArticlesRepo = {
+    async findArticleByCanonicalUrl() {
+      return { id: 'article-read-1', lifecycle_state: 'read' };
+    },
+  };
+
+  const result = await controller.showCurrentTabReadingActions(fakeChrome, fakeArticlesRepo, null, null);
+
+  assertEqual(result.injected, false);
+  assertEqual(result.reason, 'not_unread');
+  assertEqual(scriptCalls.length, 1);
+  assertDeepEqual(scriptCalls[0].target, { tabId: 102 });
+  assertEqual(scriptCalls[0].args.length, 0);
+});
+
+
+test('action controller marks the current page article read and closes the tab', async () => {
+  const controller = globalThis.TabOutActionController;
+  if (!controller) throw new Error('TabOutActionController missing');
+
+  const marked = [];
+  const removedTabs = [];
+  const fakeChrome = {
+    tabs: {
+      async query() {
+        return [{ id: 103, url: 'https://example.com/read' }];
+      },
+      async remove(tabId) {
+        removedTabs.push(tabId);
+      },
+    },
+    action: {
+      async setBadgeText() {},
+      async setIcon() {},
+    },
+  };
+  const fakeArticlesRepo = {
+    async findArticleByCanonicalUrl() {
+      return { id: 'article-active-1', lifecycle_state: 'active' };
+    },
+    async markArticleRead(articleId) {
+      marked.push(articleId);
+      return { id: articleId, lifecycle_state: 'read' };
+    },
+  };
+
+  const result = await controller.markCurrentTabArticleReadAndClose(fakeChrome, fakeArticlesRepo);
+
+  assertDeepEqual(marked, ['article-active-1']);
+  assertDeepEqual(removedTabs, [103]);
+  assertEqual(result.articleId, 'article-active-1');
+});
+
+
+test('action controller deletes the current page article job and closes the tab', async () => {
+  const controller = globalThis.TabOutActionController;
+  if (!controller) throw new Error('TabOutActionController missing');
+
+  const deletedArticles = [];
+  const deletedJobs = [];
+  const removedTabs = [];
+  const fakeChrome = {
+    tabs: {
+      async query() {
+        return [{ id: 104, url: 'https://example.com/read' }];
+      },
+      async remove(tabId) {
+        removedTabs.push(tabId);
+      },
+    },
+    action: {
+      async setBadgeText() {},
+      async setIcon() {},
+    },
+  };
+  const fakeArticlesRepo = {
+    async findArticleByCanonicalUrl() {
+      return { id: 'article-delete-1', lifecycle_state: 'active' };
+    },
+    async deleteArticlePermanently(articleId) {
+      deletedArticles.push(articleId);
+    },
+  };
+  const fakeJobsRepo = {
+    async getJobByArticleId(articleId) {
+      assertEqual(articleId, 'article-delete-1');
+      return { id: 'job-delete-1', article_id: articleId };
+    },
+    async deleteJob(jobId) {
+      deletedJobs.push(jobId);
+    },
+  };
+
+  const result = await controller.deleteCurrentTabArticleAndClose(fakeChrome, fakeArticlesRepo, fakeJobsRepo);
+
+  assertDeepEqual(deletedJobs, ['job-delete-1']);
+  assertDeepEqual(deletedArticles, ['article-delete-1']);
+  assertDeepEqual(removedTabs, [104]);
+  assertEqual(result.articleId, 'article-delete-1');
+});
