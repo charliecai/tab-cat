@@ -168,8 +168,6 @@
         dismiss: 'Dismiss Reading inbox actions',
         markRead: 'Mark read',
         delete: 'Delete',
-        working: 'Updating...',
-        failed: 'Action failed',
       },
       topic: {
         initialLead: 'This panel will summarize your backlog by topic instead of opening into article detail.',
@@ -513,8 +511,6 @@
         dismiss: '隐藏阅读收件箱操作',
         markRead: '标记已读',
         delete: '删除',
-        working: '处理中...',
-        failed: '操作失败',
       },
       topic: {
         initialLead: '这里会按主题总结你的待读内容，而不是直接展开单篇文章详情。',

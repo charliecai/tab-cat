@@ -198,7 +198,7 @@
       'z-index:2147483647',
       'display:grid',
       'gap:8px',
-      'width:min(188px, calc(100vw - 24px))',
+      'width:80px',
       'padding:10px',
       'border-radius:12px',
       'border:1px solid rgba(232, 226, 218, 0.92)',
@@ -272,7 +272,6 @@
       });
       button.addEventListener('click', async () => {
         if (!chrome || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') return;
-        status.textContent = copy.working || 'Updating...';
         try {
           const response = await chrome.runtime.sendMessage({
             type: 'tabout:reading-page-action',
@@ -281,8 +280,8 @@
           if (!response || !response.ok) {
             throw new Error(response && response.error ? response.error : 'Action failed');
           }
-        } catch (error) {
-          status.textContent = error && error.message ? error.message : (copy.failed || 'Action failed');
+        } catch {
+          // The page action stays compact; failures are reported through the background response only.
         }
       });
       return button;
@@ -293,11 +292,7 @@
       buildButton(copy.delete || 'Delete', 'delete-close', 'danger')
     );
 
-    const status = document.createElement('div');
-    status.setAttribute('role', 'status');
-    status.style.cssText = 'min-height:16px;font-size:11px;color:#87867f;';
-
-    card.append(top, actions, status);
+    card.append(top, actions);
     document.documentElement.appendChild(card);
     requestAnimationFrame(() => {
       card.style.opacity = '1';
@@ -328,8 +323,6 @@
       dismiss: await getActionToastText(settingsRepo, 'readingPageActions.dismiss'),
       markRead: await getActionToastText(settingsRepo, 'readingPageActions.markRead'),
       delete: await getActionToastText(settingsRepo, 'readingPageActions.delete'),
-      working: await getActionToastText(settingsRepo, 'readingPageActions.working'),
-      failed: await getActionToastText(settingsRepo, 'readingPageActions.failed'),
     };
   }
 

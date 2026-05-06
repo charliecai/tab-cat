@@ -529,8 +529,8 @@ test('action controller injects reading page actions for an unread saved article
   assertEqual(renderedText.includes('删除并关闭'), false);
   assertEqual(renderedText.includes('Mark read') || renderedText.includes('标记已读'), true);
   assertEqual(renderedText.includes('Delete') || renderedText.includes('删除'), true);
-  assertEqual(card.style.width.includes('188px'), true);
-  assertEqual(card.style.width.includes('24px') || card.style.width.includes('-24px'), true);
+  assertEqual(card.style.width, '80px');
+  assertEqual(card.querySelector('[role="status"]'), null);
   assertEqual(card.querySelectorAll('button')[0].style.border, '0px');
   card.remove();
 });
