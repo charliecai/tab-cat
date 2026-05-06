@@ -287,10 +287,10 @@
       return button;
     }
 
-    actions.append(
-      buildButton(copy.markRead || 'Mark read', 'mark-read-close', 'primary'),
-      buildButton(copy.delete || 'Delete', 'delete-close', 'danger')
-    );
+    if (payload && payload.canMarkRead !== false) {
+      actions.append(buildButton(copy.markRead || 'Mark read', 'mark-read-close', 'primary'));
+    }
+    actions.append(buildButton(copy.delete || 'Delete', 'delete-close', 'danger'));
 
     card.append(top, actions);
     document.documentElement.appendChild(card);
@@ -298,10 +298,6 @@
       card.style.opacity = '1';
       card.style.transform = 'translateY(0)';
     });
-  }
-
-  function isUnreadInboxArticle(article) {
-    return Boolean(isInboxArticle(article) && article.lifecycle_state === 'active');
   }
 
   async function getCurrentTabInboxArticle(chromeApi, articlesRepo) {
@@ -313,7 +309,7 @@
 
     const article = await articlesRepo.findArticleByCanonicalUrl(url);
     if (!article) return { tab, article: null, reason: 'missing' };
-    if (!isUnreadInboxArticle(article)) return { tab, article, reason: 'not_unread' };
+    if (!isInboxArticle(article)) return { tab, article, reason: 'deleted' };
     return { tab, article, reason: 'matched' };
   }
 
@@ -332,7 +328,7 @@
       return { injected: false, reason };
     }
 
-    if (!isUnreadInboxArticle(article)) {
+    if (!isInboxArticle(article)) {
       try {
         await chromeApi.scripting.executeScript({
           target: { tabId: tab.id },
@@ -351,6 +347,7 @@
         title: article.title || article.url || '',
         url: article.url || tab.url || '',
       },
+      canMarkRead: article.lifecycle_state !== 'read',
       copy: await getReadingPageActionCopy(settingsRepo),
     };
 

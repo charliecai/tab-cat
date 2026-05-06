@@ -536,7 +536,7 @@ test('action controller injects reading page actions for an unread saved article
 });
 
 
-test('action controller removes reading page actions when current article is already read', async () => {
+test('action controller injects delete-only reading page actions when current article is already read', async () => {
   const controller = globalThis.TabOutActionController;
   if (!controller) throw new Error('TabOutActionController missing');
 
@@ -555,17 +555,32 @@ test('action controller removes reading page actions when current article is alr
   };
   const fakeArticlesRepo = {
     async findArticleByCanonicalUrl() {
-      return { id: 'article-read-1', lifecycle_state: 'read' };
+      return {
+        id: 'article-read-1',
+        title: 'Already read',
+        url: 'https://example.com/read',
+        lifecycle_state: 'read',
+      };
     },
   };
 
   const result = await controller.showCurrentTabReadingActions(fakeChrome, fakeArticlesRepo, null, null);
 
-  assertEqual(result.injected, false);
-  assertEqual(result.reason, 'not_unread');
+  assertEqual(result.injected, true);
+  assertEqual(result.articleId, 'article-read-1');
   assertEqual(scriptCalls.length, 1);
   assertDeepEqual(scriptCalls[0].target, { tabId: 102 });
-  assertEqual(scriptCalls[0].args.length, 0);
+  assertEqual(scriptCalls[0].args[0].article.id, 'article-read-1');
+  assertEqual(scriptCalls[0].args[0].canMarkRead, false);
+
+  document.getElementById('tab-out-reading-page-actions')?.remove();
+  scriptCalls[0].func(...scriptCalls[0].args);
+  const card = document.getElementById('tab-out-reading-page-actions');
+  if (!card) throw new Error('Expected read article actions to render');
+  const renderedText = card.textContent;
+  assertEqual(renderedText.includes('Mark read') || renderedText.includes('标记已读'), false);
+  assertEqual(renderedText.includes('Delete') || renderedText.includes('删除'), true);
+  card.remove();
 });
 
 
