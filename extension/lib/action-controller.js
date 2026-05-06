@@ -190,21 +190,21 @@
     const card = document.createElement('aside');
     card.id = rootId;
     card.setAttribute('role', 'complementary');
-    card.setAttribute('aria-label', copy.title || 'Reading inbox actions');
+    card.setAttribute('aria-label', copy.eyebrow || 'Tab Cat');
     card.style.cssText = [
       'position:fixed',
       'right:24px',
       'bottom:24px',
       'z-index:2147483647',
       'display:grid',
-      'gap:12px',
-      'width:min(320px, calc(100vw - 32px))',
-      'padding:16px',
-      'border-radius:16px',
+      'gap:8px',
+      'width:min(188px, calc(100vw - 24px))',
+      'padding:10px',
+      'border-radius:12px',
       'border:1px solid rgba(232, 226, 218, 0.92)',
       'background:rgba(250, 249, 245, 0.98)',
       'color:#141413',
-      'box-shadow:0 18px 46px rgba(20, 20, 19, 0.16), 0 0 0 1px rgba(240, 238, 230, 0.84)',
+      'box-shadow:0 10px 28px rgba(20, 20, 19, 0.14), 0 0 0 1px rgba(240, 238, 230, 0.84)',
       'font-family:"DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       'line-height:1.35',
       'opacity:0',
@@ -213,41 +213,39 @@
     ].join(';');
 
     const top = document.createElement('div');
-    top.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:12px;';
+    top.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
 
     const text = document.createElement('div');
-    text.style.cssText = 'display:grid;gap:4px;min-width:0;';
+    text.style.cssText = 'min-width:0;';
     const eyebrow = document.createElement('div');
-    eyebrow.textContent = copy.eyebrow || 'Tab Out';
-    eyebrow.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#c96442;';
-    const title = document.createElement('div');
-    title.textContent = copy.title || 'In Reading inbox';
-    title.style.cssText = 'font-size:14px;font-weight:700;color:#141413;';
-    const subtitle = document.createElement('div');
-    subtitle.textContent = article.title || article.url || copy.subtitle || '';
-    subtitle.style.cssText = 'font-size:12px;color:#5e5d59;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-    text.append(eyebrow, title, subtitle);
+    eyebrow.textContent = copy.eyebrow || 'Tab Cat';
+    eyebrow.style.cssText = 'font-size:11px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#c96442;white-space:nowrap;';
+    text.append(eyebrow);
 
     const dismiss = document.createElement('button');
     dismiss.type = 'button';
     dismiss.textContent = '×';
     dismiss.setAttribute('aria-label', copy.dismiss || 'Dismiss');
     dismiss.style.cssText = [
-      'border:1px solid rgba(232, 226, 218, 0.92)',
-      'background:#fffdfa',
+      'border:0',
+      'background:transparent',
       'color:#5e5d59',
-      'border-radius:999px',
-      'width:28px',
-      'height:28px',
-      'font-size:18px',
+      'border-radius:0',
+      'width:20px',
+      'height:20px',
+      'font-size:17px',
       'line-height:1',
       'cursor:pointer',
     ].join(';');
     dismiss.addEventListener('click', () => card.remove());
     top.append(text, dismiss);
 
+    if (!chrome || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') {
+      card.dataset.preview = 'true';
+    }
+
     const actions = document.createElement('div');
-    actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
+    actions.style.cssText = 'display:grid;gap:6px;';
 
     function buildButton(label, action, variant) {
       const button = document.createElement('button');
@@ -256,7 +254,7 @@
       button.dataset.tabOutReadingAction = action;
       button.style.cssText = [
         'border-radius:999px',
-        'padding:9px 12px',
+        'padding:7px 10px',
         'font-size:12px',
         'font-weight:700',
         'font-family:inherit',
@@ -273,6 +271,7 @@
         button.style.transform = 'translateY(0)';
       });
       button.addEventListener('click', async () => {
+        if (!chrome || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') return;
         status.textContent = copy.working || 'Updating...';
         try {
           const response = await chrome.runtime.sendMessage({
@@ -290,8 +289,8 @@
     }
 
     actions.append(
-      buildButton(copy.markReadAndClose || 'Mark read & close', 'mark-read-close', 'primary'),
-      buildButton(copy.deleteAndClose || 'Delete & close', 'delete-close', 'danger')
+      buildButton(copy.markRead || 'Mark read', 'mark-read-close', 'primary'),
+      buildButton(copy.delete || 'Delete', 'delete-close', 'danger')
     );
 
     const status = document.createElement('div');
@@ -325,12 +324,10 @@
 
   async function getReadingPageActionCopy(settingsRepo) {
     return {
-      eyebrow: 'Tab Out',
-      title: await getActionToastText(settingsRepo, 'readingPageActions.title'),
-      subtitle: await getActionToastText(settingsRepo, 'readingPageActions.subtitle'),
+      eyebrow: 'Tab Cat',
       dismiss: await getActionToastText(settingsRepo, 'readingPageActions.dismiss'),
-      markReadAndClose: await getActionToastText(settingsRepo, 'readingPageActions.markReadAndClose'),
-      deleteAndClose: await getActionToastText(settingsRepo, 'readingPageActions.deleteAndClose'),
+      markRead: await getActionToastText(settingsRepo, 'readingPageActions.markRead'),
+      delete: await getActionToastText(settingsRepo, 'readingPageActions.delete'),
       working: await getActionToastText(settingsRepo, 'readingPageActions.working'),
       failed: await getActionToastText(settingsRepo, 'readingPageActions.failed'),
     };

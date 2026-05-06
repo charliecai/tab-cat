@@ -514,6 +514,25 @@ test('action controller injects reading page actions for an unread saved article
   assertDeepEqual(scriptCalls[0].target, { tabId: 101 });
   assertEqual(scriptCalls[0].args[0].article.id, 'article-quick-1');
   assertEqual(scriptCalls[0].args[0].article.title, 'Article page');
+
+  document.getElementById('tab-out-reading-page-actions')?.remove();
+  scriptCalls[0].func(...scriptCalls[0].args);
+  const card = document.getElementById('tab-out-reading-page-actions');
+  if (!card) throw new Error('Expected reading page actions to render');
+  const renderedText = card.textContent;
+  assertEqual(renderedText.includes('Tab Cat'), true);
+  assertEqual(renderedText.includes('In Reading inbox'), false);
+  assertEqual(renderedText.includes('Article page'), false);
+  assertEqual(renderedText.includes('Mark read & close'), false);
+  assertEqual(renderedText.includes('Delete & close'), false);
+  assertEqual(renderedText.includes('标记已读并关闭'), false);
+  assertEqual(renderedText.includes('删除并关闭'), false);
+  assertEqual(renderedText.includes('Mark read') || renderedText.includes('标记已读'), true);
+  assertEqual(renderedText.includes('Delete') || renderedText.includes('删除'), true);
+  assertEqual(card.style.width.includes('188px'), true);
+  assertEqual(card.style.width.includes('24px') || card.style.width.includes('-24px'), true);
+  assertEqual(card.querySelectorAll('button')[0].style.border, '0px');
+  card.remove();
 });
 
 
