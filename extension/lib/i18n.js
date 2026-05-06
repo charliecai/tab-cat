@@ -164,6 +164,15 @@
           opened: 'Opened',
         },
       },
+      readingPageActions: {
+        title: 'In Reading inbox',
+        subtitle: 'Resolve it here when you finish reading.',
+        dismiss: 'Dismiss Reading inbox actions',
+        markReadAndClose: 'Mark read & close',
+        deleteAndClose: 'Delete & close',
+        working: 'Updating...',
+        failed: 'Action failed',
+      },
       topic: {
         initialLead: 'This panel will summarize your backlog by topic instead of opening into article detail.',
         initialBody: 'Once items are saved, analyzed, and grouped, this becomes the calm decision layer for what to read next.',
@@ -501,6 +510,15 @@
           unopened: '未打开',
           opened: '已打开',
         },
+      },
+      readingPageActions: {
+        title: '在阅读收件箱中',
+        subtitle: '读完后可直接在这里处理。',
+        dismiss: '隐藏阅读收件箱操作',
+        markReadAndClose: '标记已读并关闭',
+        deleteAndClose: '删除并关闭',
+        working: '处理中...',
+        failed: '操作失败',
       },
       topic: {
         initialLead: '这里会按主题总结你的待读内容，而不是直接展开单篇文章详情。',

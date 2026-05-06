@@ -176,6 +176,233 @@
     }
   }
 
+  function removeReadingPageActions() {
+    document.getElementById('tab-out-reading-page-actions')?.remove();
+  }
+
+  function renderReadingPageActions(payload) {
+    const rootId = 'tab-out-reading-page-actions';
+    const existing = document.getElementById(rootId);
+    if (existing) existing.remove();
+
+    const article = (payload && payload.article) || {};
+    const copy = (payload && payload.copy) || {};
+    const card = document.createElement('aside');
+    card.id = rootId;
+    card.setAttribute('role', 'complementary');
+    card.setAttribute('aria-label', copy.title || 'Reading inbox actions');
+    card.style.cssText = [
+      'position:fixed',
+      'right:24px',
+      'bottom:24px',
+      'z-index:2147483647',
+      'display:grid',
+      'gap:12px',
+      'width:min(320px, calc(100vw - 32px))',
+      'padding:16px',
+      'border-radius:16px',
+      'border:1px solid rgba(232, 226, 218, 0.92)',
+      'background:rgba(250, 249, 245, 0.98)',
+      'color:#141413',
+      'box-shadow:0 18px 46px rgba(20, 20, 19, 0.16), 0 0 0 1px rgba(240, 238, 230, 0.84)',
+      'font-family:"DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'line-height:1.35',
+      'opacity:0',
+      'transform:translateY(10px)',
+      'transition:opacity 180ms ease, transform 180ms ease',
+    ].join(';');
+
+    const top = document.createElement('div');
+    top.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:12px;';
+
+    const text = document.createElement('div');
+    text.style.cssText = 'display:grid;gap:4px;min-width:0;';
+    const eyebrow = document.createElement('div');
+    eyebrow.textContent = copy.eyebrow || 'Tab Out';
+    eyebrow.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#c96442;';
+    const title = document.createElement('div');
+    title.textContent = copy.title || 'In Reading inbox';
+    title.style.cssText = 'font-size:14px;font-weight:700;color:#141413;';
+    const subtitle = document.createElement('div');
+    subtitle.textContent = article.title || article.url || copy.subtitle || '';
+    subtitle.style.cssText = 'font-size:12px;color:#5e5d59;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    text.append(eyebrow, title, subtitle);
+
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.textContent = '×';
+    dismiss.setAttribute('aria-label', copy.dismiss || 'Dismiss');
+    dismiss.style.cssText = [
+      'border:1px solid rgba(232, 226, 218, 0.92)',
+      'background:#fffdfa',
+      'color:#5e5d59',
+      'border-radius:999px',
+      'width:28px',
+      'height:28px',
+      'font-size:18px',
+      'line-height:1',
+      'cursor:pointer',
+    ].join(';');
+    dismiss.addEventListener('click', () => card.remove());
+    top.append(text, dismiss);
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
+
+    function buildButton(label, action, variant) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.dataset.tabOutReadingAction = action;
+      button.style.cssText = [
+        'border-radius:999px',
+        'padding:9px 12px',
+        'font-size:12px',
+        'font-weight:700',
+        'font-family:inherit',
+        'cursor:pointer',
+        'transition:transform 160ms ease, box-shadow 160ms ease, background 160ms ease',
+        variant === 'primary'
+          ? 'border:1px solid #141413;background:#141413;color:#faf9f5'
+          : 'border:1px solid rgba(179, 90, 90, 0.3);background:rgba(179, 90, 90, 0.08);color:#b53333',
+      ].join(';');
+      button.addEventListener('mouseenter', () => {
+        button.style.transform = 'translateY(-1px)';
+      });
+      button.addEventListener('mouseleave', () => {
+        button.style.transform = 'translateY(0)';
+      });
+      button.addEventListener('click', async () => {
+        status.textContent = copy.working || 'Updating...';
+        try {
+          const response = await chrome.runtime.sendMessage({
+            type: 'tabout:reading-page-action',
+            action,
+          });
+          if (!response || !response.ok) {
+            throw new Error(response && response.error ? response.error : 'Action failed');
+          }
+        } catch (error) {
+          status.textContent = error && error.message ? error.message : (copy.failed || 'Action failed');
+        }
+      });
+      return button;
+    }
+
+    actions.append(
+      buildButton(copy.markReadAndClose || 'Mark read & close', 'mark-read-close', 'primary'),
+      buildButton(copy.deleteAndClose || 'Delete & close', 'delete-close', 'danger')
+    );
+
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    status.style.cssText = 'min-height:16px;font-size:11px;color:#87867f;';
+
+    card.append(top, actions, status);
+    document.documentElement.appendChild(card);
+    requestAnimationFrame(() => {
+      card.style.opacity = '1';
+      card.style.transform = 'translateY(0)';
+    });
+  }
+
+  function isUnreadInboxArticle(article) {
+    return Boolean(isInboxArticle(article) && article.lifecycle_state === 'active');
+  }
+
+  async function getCurrentTabInboxArticle(chromeApi, articlesRepo) {
+    const tab = await getCurrentTab(chromeApi);
+    const url = tab && tab.url ? tab.url : '';
+    if (!tab || !tab.id || !canCheckInboxForUrl(url) || !articlesRepo) {
+      return { tab, article: null, reason: 'unsupported_url' };
+    }
+
+    const article = await articlesRepo.findArticleByCanonicalUrl(url);
+    if (!article) return { tab, article: null, reason: 'missing' };
+    if (!isUnreadInboxArticle(article)) return { tab, article, reason: 'not_unread' };
+    return { tab, article, reason: 'matched' };
+  }
+
+  async function getReadingPageActionCopy(settingsRepo) {
+    return {
+      eyebrow: 'Tab Out',
+      title: await getActionToastText(settingsRepo, 'readingPageActions.title'),
+      subtitle: await getActionToastText(settingsRepo, 'readingPageActions.subtitle'),
+      dismiss: await getActionToastText(settingsRepo, 'readingPageActions.dismiss'),
+      markReadAndClose: await getActionToastText(settingsRepo, 'readingPageActions.markReadAndClose'),
+      deleteAndClose: await getActionToastText(settingsRepo, 'readingPageActions.deleteAndClose'),
+      working: await getActionToastText(settingsRepo, 'readingPageActions.working'),
+      failed: await getActionToastText(settingsRepo, 'readingPageActions.failed'),
+    };
+  }
+
+  async function showCurrentTabReadingActions(chromeApi, articlesRepo, _jobsRepo, settingsRepo) {
+    const { tab, article, reason } = await getCurrentTabInboxArticle(chromeApi, articlesRepo);
+    if (!tab || !tab.id || !chromeApi.scripting || !chromeApi.scripting.executeScript) {
+      return { injected: false, reason };
+    }
+
+    if (!isUnreadInboxArticle(article)) {
+      try {
+        await chromeApi.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: removeReadingPageActions,
+          args: [],
+        });
+      } catch {
+        // Restricted pages can reject script injection.
+      }
+      return { injected: false, reason };
+    }
+
+    const payload = {
+      article: {
+        id: article.id,
+        title: article.title || article.url || '',
+        url: article.url || tab.url || '',
+      },
+      copy: await getReadingPageActionCopy(settingsRepo),
+    };
+
+    try {
+      await chromeApi.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: renderReadingPageActions,
+        args: [payload],
+      });
+      return { injected: true, articleId: article.id };
+    } catch {
+      return { injected: false, reason: 'injection_failed' };
+    }
+  }
+
+  async function markCurrentTabArticleReadAndClose(chromeApi, articlesRepo) {
+    const { tab, article, reason } = await getCurrentTabInboxArticle(chromeApi, articlesRepo);
+    if (!tab || !tab.id || !article) throw new Error(reason || 'Current page is not in Reading inbox');
+
+    await articlesRepo.markArticleRead(article.id);
+    await updateCurrentTabInboxBadge(chromeApi, articlesRepo);
+    await chromeApi.tabs.remove(tab.id);
+    return { articleId: article.id };
+  }
+
+  async function deleteCurrentTabArticleAndClose(chromeApi, articlesRepo, jobsRepo) {
+    const { tab, article, reason } = await getCurrentTabInboxArticle(chromeApi, articlesRepo);
+    if (!tab || !tab.id || !article) throw new Error(reason || 'Current page is not in Reading inbox');
+
+    if (jobsRepo && typeof jobsRepo.getJobByArticleId === 'function') {
+      const relatedJob = await jobsRepo.getJobByArticleId(article.id);
+      if (relatedJob && typeof jobsRepo.deleteJob === 'function') {
+        await jobsRepo.deleteJob(relatedJob.id);
+      }
+    }
+
+    await articlesRepo.deleteArticlePermanently(article.id);
+    await updateCurrentTabInboxBadge(chromeApi, articlesRepo);
+    await chromeApi.tabs.remove(tab.id);
+    return { articleId: article.id };
+  }
+
   async function updateCurrentTabInboxBadge(chromeApi, articlesRepo) {
     try {
       const tab = await getCurrentTab(chromeApi);
@@ -273,4 +500,7 @@
   namespace.showActionToast = showActionToast;
   namespace.saveCurrentTabToReadingInbox = saveCurrentTabToReadingInbox;
   namespace.updateCurrentTabInboxBadge = updateCurrentTabInboxBadge;
+  namespace.showCurrentTabReadingActions = showCurrentTabReadingActions;
+  namespace.markCurrentTabArticleReadAndClose = markCurrentTabArticleReadAndClose;
+  namespace.deleteCurrentTabArticleAndClose = deleteCurrentTabArticleAndClose;
 })();

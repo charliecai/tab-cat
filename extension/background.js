@@ -18,6 +18,16 @@ async function updateBadge() {
   await globalThis.TabOutActionController.updateCurrentTabInboxBadge(chrome, globalThis.TabOutArticlesRepo);
 }
 
+async function refreshCurrentTabReadingActions() {
+  await updateBadge();
+  await globalThis.TabOutActionController.showCurrentTabReadingActions(
+    chrome,
+    globalThis.TabOutArticlesRepo,
+    globalThis.TabOutJobsRepo,
+    globalThis.TabOutSettingsRepo
+  );
+}
+
 async function initializeWorker() {
   try {
     await globalThis.TabOutDb.openTabOutDb();
@@ -49,6 +59,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((error) => {
         sendResponse({ ok: false, error: error.message });
       });
+    return true;
+  }
+
+  if (message.type === 'tabout:reading-page-action') {
+    (async () => {
+      if (message.action === 'mark-read-close') {
+        const result = await globalThis.TabOutActionController.markCurrentTabArticleReadAndClose(
+          chrome,
+          globalThis.TabOutArticlesRepo
+        );
+        sendResponse({ ok: true, ...result });
+        return;
+      }
+
+      if (message.action === 'delete-close') {
+        const result = await globalThis.TabOutActionController.deleteCurrentTabArticleAndClose(
+          chrome,
+          globalThis.TabOutArticlesRepo,
+          globalThis.TabOutJobsRepo
+        );
+        sendResponse({ ok: true, ...result });
+        return;
+      }
+
+      sendResponse({ ok: false, error: 'Unknown Reading page action' });
+    })().catch((error) => {
+      sendResponse({ ok: false, error: error.message });
+    });
     return true;
   }
 
@@ -90,29 +128,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  updateBadge();
+  refreshCurrentTabReadingActions();
   initializeWorker();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  updateBadge();
+  refreshCurrentTabReadingActions();
   initializeWorker();
 });
 
 chrome.tabs.onCreated.addListener(() => {
-  updateBadge();
+  refreshCurrentTabReadingActions();
 });
 
 chrome.tabs.onActivated.addListener(() => {
-  updateBadge();
+  refreshCurrentTabReadingActions();
 });
 
 chrome.tabs.onRemoved.addListener(() => {
-  updateBadge();
+  refreshCurrentTabReadingActions();
 });
 
 chrome.tabs.onUpdated.addListener(() => {
-  updateBadge();
+  refreshCurrentTabReadingActions();
 });
 
 chrome.action.onClicked.addListener(() => {
@@ -125,18 +163,19 @@ chrome.action.onClicked.addListener(() => {
     )
     .then(async () => {
       await globalThis.TabOutJobsRunner.kick();
+      await refreshCurrentTabReadingActions();
     })
     .catch((error) => {
       console.warn('[tab-out] failed to save current tab to Reading inbox:', error);
-      updateBadge();
+      refreshCurrentTabReadingActions();
     });
 });
 
 if (chrome.windows && chrome.windows.onFocusChanged) {
   chrome.windows.onFocusChanged.addListener(() => {
-    updateBadge();
+    refreshCurrentTabReadingActions();
   });
 }
 
-updateBadge();
+refreshCurrentTabReadingActions();
 initializeWorker();
